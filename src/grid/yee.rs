@@ -646,32 +646,23 @@ impl Grid for YeeGrid {
             world.process_at_rank(rank).synchronous_send(&send_right[..]);
         } // else hit the absorbing boundary
     }
-}
 
-impl YeeGrid {
-    /// Strips away the boundary padding of the local domain.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// let cells: Array1<Cell> = grid.without_ghosts();
-    /// assert_eq!( cells.len(), grid.size );
-    /// ```
-    fn without_ghosts(&self) -> ArrayView1<Cell> {
-        self.cell.slice(s![self.left_bdy_size..-self.right_bdy_size])
-    }
-
-    pub fn write(&self, world: impl Communicator, file: &mut std::fs::File) -> std::io::Result<()> {
+    fn write_data(&self, world: impl Communicator, dir: &str, index: usize) -> std::io::Result<()> {
+        use std::fs::File;
         use std::io::Write;
         let id = self.id;
 
         if id == 0 {
-            let mut global = self.without_ghosts().to_vec();
+            let mut global = self.interpolate();
             assert_eq!( global.len(), self.size );
             for recv_rank in 1..self.ngrids() {
                 let (recv, _) = world.process_at_rank(recv_rank).receive_vec::<Cell>();
                 global.extend(recv);
             }
+
+            let filename = format!("{}/{}_grid.dat", dir, index);
+            let mut file = File::create(filename)?;
+
             for cell in global.iter() {
                 writeln! (
                     file,
@@ -683,11 +674,36 @@ impl YeeGrid {
                 )?;
             }
         } else {
-            let send = self.without_ghosts().to_vec();
+            let send = self.interpolate();
             world.process_at_rank(0).synchronous_send(&send[..]);
         }
 
         Ok(())
+    }
+}
+
+impl YeeGrid {
+    /// Interpolate all grid quantities to the cell left boundary,
+    /// having stripped away ghost cells.
+    fn interpolate(&self) -> Vec<Cell> {
+        let v: Vec<Cell> = self.cell
+            .slice(s![self.left_bdy_size-1..-self.right_bdy_size])
+            .to_vec();
+
+        let intrp: Vec<Cell> = v.windows(2)
+            .map(|c| -> Cell {
+                let (a, b) = (c[0], c[1]);
+                Cell {
+                    x: b.x,
+                    rho: b.rho,
+                    j: [0.5 * (a.j[0] + b.j[0]), b.j[1], b.j[2]],
+                    E: [0.5 * (a.E[0] + b.E[0]), b.E[1], b.E[2]],
+                    B: [b.B[0], 0.5 * (a.B[1] + b.B[1]), 0.5 * (a.B[2] + b.B[2])],
+                }
+            })
+            .collect();
+        
+        intrp
     }
 
     /// Advance the magnetic fields components in time.

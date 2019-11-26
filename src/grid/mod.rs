@@ -31,4 +31,5 @@ pub trait Grid {
     fn clear(&mut self);
     fn deposit<P: Particle + Send + Sync>(&mut self, pt: &[P], dt: f64);
     fn initialize(&mut self, world: impl Communicator);
+    fn write_data(&self, world: impl Communicator, dir: &str, index: usize) -> std::io::Result<()>;
 }
