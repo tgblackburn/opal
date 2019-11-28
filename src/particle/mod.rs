@@ -117,70 +117,51 @@ impl<T> Population<T> where T: Particle + Send + Sync {
     pub fn advance<C,G>(&mut self, comm: &C, grid: &G, dt: f64)
     where C: Communicator, G: Grid + Sync {
         let dx = grid.dx();
-        /*
-        let fields: Vec<([f64; 3], [f64; 3])> = self.store
-            .par_iter()
-            .map(|pt| {let (c, x) = pt.location(); grid.fields_at(c, x)})
-            .collect();
+        let max = grid.size() as isize;
+        let num = self.store.len();
 
-        self.store.par_iter_mut()
-            .zip(fields.par_iter())
-            .for_each(|(ref mut pt, (E, B))| { //: (&mut T, &([f64; 3], [f64; 3]))| {
-                pt.push(E, B, dx, dt);
-            });
-        */
-        self.store.par_iter_mut() // iter_mut()
-            .for_each(|pt| {
-                let (c, x, _) = pt.location();
-                let (E, B) = grid.fields_at(c, x);
-                pt.push(&E, &B, dx, dt); 
-            });
+        let nthreads = rayon::current_num_threads();
+        // chunk length cannot be zero
+        let chunk_len = if num > nthreads {
+            num / nthreads
+        } else {
+            1 // guarantee this runs
+        };
+
+        let mut counts: Vec<(usize, usize)> = Vec::with_capacity(nthreads);
+        self.store
+            .par_chunks_mut(chunk_len)
+            .map(|chunk: &mut [T]| -> (usize, usize) {
+                let mut gone_left: usize = 0;
+                let mut gone_right: usize = 0;
+                chunk.iter_mut().for_each(|pt| {
+                    let (c, x, _) = pt.location();
+                    let (E, B) = grid.fields_at(c, x);
+                    pt.push(&E, &B, dx, dt);
+                    let (c, _, _) = pt.location();
+                    if c < 0 {
+                        gone_left = gone_left + 1;
+                    } else if c >= max {
+                        gone_right = gone_right + 1;
+                    }
+                });
+                (gone_left, gone_right)
+            })
+            .collect_into_vec(&mut counts);
+
+        let (gone_left, gone_right) = counts.iter().fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
 
         // sort by GridCell id
-        // replace with par_sort_unstable_by
-        self.store.par_sort_unstable_by(
-            |a, b| a.partial_cmp(b).unwrap()
-        );
+        // pretty expensive...
+        self.store.par_sort_unstable_by_key(|pt| pt.location().0);
 
-        // first and last elements need to be moved?
-        let mut send_left: Vec<T> = Vec::new();
-        let mut send_right: Vec<T> = Vec::new();
-
-        let has_gone_left = move |pt: &&T| {
-            let (c, _, _) = pt.location();
-            //grid.classify_location(c) == Location::GoneLeft
-            c < 0
-        };
-
-        let max = grid.size() as isize;
-        let has_gone_right = move |pt: &&T| {
-            let (c, _, _) = pt.location();
-            //grid.classify_location(c) == Location::GoneRight
-            c >= max
-        };
-
-        send_left.par_extend( // extend
-            self.store.par_iter().filter(has_gone_left) // iter
-        );
-
-        send_right.par_extend(
-            self.store.par_iter().filter(has_gone_right)
-        );
-
-        /*
-        if send_left.len() != 0 {
-            println!("{} needs to send {} pts to the left", grid.rank(), send_left.len());
-        }
-        if send_right.len() != 0 {
-            println!("{} needs to send {} pts to the right", grid.rank(), send_right.len());
-        }
-        */
-
+        // Get slices of lost particles - but don't replace just yet
+        let send_left = &self.store[0..gone_left];
+        let send_right = &self.store[num-gone_right..num];
+        
         // Delete lost particles
-
-        let retain = self.store.len() - send_right.len();
-        self.store.truncate(retain);
-        self.store.drain(..send_left.len());
+        //let send_right: Vec<T> = self.store.drain(num-gone_right..num).collect();
+        //let send_left: Vec<T> = self.store.drain(0..gone_left).collect();
 
         // Even grids go first, sending to right
 
@@ -189,7 +170,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
         if grid.rank() % 2 == 0 {
             if let Some(r) = grid.to_right() {
-                comm.process_at_rank(r).synchronous_send(&send_right[..]);
+                comm.process_at_rank(r).synchronous_send(send_right);
                 let mut tmp = comm.process_at_rank(r).receive_vec::<T>().0;
                 recv_right.append(&mut tmp);
             }
@@ -197,7 +178,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
             if let Some(l) = grid.to_left() {
                 let mut tmp = comm.process_at_rank(l).receive_vec::<T>().0;
                 recv_left.append(&mut tmp);
-                comm.process_at_rank(l).synchronous_send(&send_left[..]);
+                comm.process_at_rank(l).synchronous_send(send_left);
             }
         }
 
@@ -205,7 +186,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
         if grid.rank() % 2 == 0 {
             if let Some(l) = grid.to_left() {
-                comm.process_at_rank(l).synchronous_send(&send_left[..]);
+                comm.process_at_rank(l).synchronous_send(send_left);
                 let mut tmp = comm.process_at_rank(l).receive_vec::<T>().0;
                 recv_left.append(&mut tmp);
             }
@@ -213,7 +194,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
             if let Some(r) = grid.to_right() {
                 let mut tmp = comm.process_at_rank(r).receive_vec::<T>().0;
                 recv_right.append(&mut tmp);
-                comm.process_at_rank(r).synchronous_send(&send_right[..]);
+                comm.process_at_rank(r).synchronous_send(send_right);
             }
         }
 
@@ -228,15 +209,18 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
         // Need to correct cells!
         for pt in recv_left.iter_mut() {
-            pt.shift_cell(-(grid.size() as isize));
+            pt.shift_cell(-max);
         }
         for pt in recv_right.iter_mut() {
-            pt.shift_cell(grid.size() as isize);
+            pt.shift_cell(max);
         }
 
-        self.store.extend_from_slice(&recv_left[..]);
-        //self.store.splice(0..0, recv_left.into_iter());
-        self.store.extend_from_slice(&recv_right[..]);
+        // Overwrite lost particles with new ones
+        // Append first!
+        self.store.splice(num-gone_right..num, recv_right.iter().cloned());
+        self.store.splice(0..gone_left, recv_left.iter().cloned()); // eat the cost, which is not so bad
+
+        //assert!(num - gone_left - gone_right + recv_left.len() + recv_right.len() == self.store.len());
     }
 
     /*

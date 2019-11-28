@@ -144,6 +144,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         //println!("{} got {} electrons at {}", grid.rank(), electrons.size(), i);
 
         for _j in 0..steps_bt_output {
+            //println!("{} at i = {}, j = {} [steps between output = {}]", id, i, _j, steps_bt_output);
             electrons.advance(&world, &grid, dt);
             ions.advance(&world, &grid, dt);
 

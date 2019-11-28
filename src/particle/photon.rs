@@ -180,6 +180,7 @@ impl Particle for Photon {
     }
 }
 
+#[allow(unused)]
 impl Photon {
     pub fn with_polarization_along(&self, dir: [f64; 3]) -> Self {
         let mut pt = self.clone();

@@ -145,46 +145,31 @@ impl Particle for Ion {
     #[allow(non_snake_case)]
     fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64) {
         let E = Vec3::new_from_slice(E);
-        let B = Vec3::new_from_slice(B);
-        
-        // velocity in SI units
-        let v = SPEED_OF_LIGHT * self.u / (1.0 + self.gamma_m1);
+        let cB = SPEED_OF_LIGHT * Vec3::new_from_slice(B);
 
-        // u_i = u_{i-1/2} + (q dt/2 m c) (E + v_{i-1/2} x B)
+        // Boris pusher
         let q = self.Z_star * ELEMENTARY_CHARGE;
         let M = self.A * PROTON_MASS;
-
         let alpha = q * dt / (2.0 * M * SPEED_OF_LIGHT);
-        let u_half = self.u + alpha * (E + v.cross(B));
-        self.work += q * SPEED_OF_LIGHT * (u_half * E) * dt / (1.0 + u_half * u_half).sqrt();
 
-        // u' =  u_{i-1/2} + (q dt/2 m c) (2 E + v_{i-1/2} x B)
-        let u_prime = u_half + alpha * E;
-        let gamma_prime_sqd = 1.0 + u_prime * u_prime;
+        // half the electric field acceleration:
+        // u_ = u + alpha E
+        let u_minus = self.u + alpha * E;
 
-        // update Lorentz factor
-        let tau = alpha * SPEED_OF_LIGHT * B;
-        let u_star = u_prime * tau;
-        let sigma = gamma_prime_sqd - tau * tau;
+        // magnetic field rotation:
+        // u' = u_ + t (u_ x cB)
+        let gamma = 1.0 + u_minus.norm_sqr() / (1.0 + (1.0 + u_minus.norm_sqr()).sqrt());
+        let t = alpha / gamma;
+        let u_prime = u_minus + t * u_minus.cross(cB);
 
-        let gamma = (
-            0.5 * sigma +
-            (0.25 * sigma.powi(2) + tau * tau + u_star.powi(2)).sqrt()
-        ).sqrt();
-        
-        /*
-        if gamma < 1.0 {
-            println!("gamma = {}, {:?}", gamma, self);
-        }
-        assert!(gamma >= 1.0);
-        */
-        self.gamma_m1 = if gamma > 1.0 {gamma - 1.0} else {1.0};
+        // u+ = u_ + t' (u' x B)
+        let t_prime = 2.0 * t / (1.0 + t.powi(2) * cB.norm_sqr());
+        let u_plus = u_minus + t_prime * u_prime.cross(cB);
 
-        // and momentum
-        let t = tau / (1.0 + self.gamma_m1);
-        let s = 1.0 / (1.0 + t * t);
-
-        self.u = s * (u_prime + (u_prime * t) * t + u_prime.cross(t));
+        // remaining electric field acceleration
+        // u = u+ + alpha E
+        self.u = u_plus + alpha * E;
+        self.gamma_m1 = self.u.norm_sqr() / (1.0 + (1.0 + self.u.norm_sqr()).sqrt());
 
         // then the position
         self.prev_x = self.x;

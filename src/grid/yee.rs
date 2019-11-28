@@ -474,6 +474,7 @@ impl Grid for YeeGrid {
         } else {
             pt.len() // which is > 0
         };
+
         pt.par_chunks(chunk_len)
             .map(|chunk: &[P]| -> Vec<[f64; 4]> {
                 let mut j = vec![[0.0; 4]; size];
@@ -522,8 +523,11 @@ impl Grid for YeeGrid {
         // Add up all the currents
         let mut total: Vec<[f64; 4]> = vec![[0.0; 4]; size];
 
+        // this isn't necessarily true due to chunking
+        //assert!( j.len() == nthreads );
+
         for i in 0..size {
-            for k in 0..nthreads {
+            for k in 0..j.len() { // not 0..nthreads
                 total[i][0] += j[k][i][0];
                 total[i][1] += j[k][i][1];
                 total[i][2] += j[k][i][2];
