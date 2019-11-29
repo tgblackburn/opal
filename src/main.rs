@@ -18,6 +18,8 @@ use particle::*;
 mod setup;
 use setup::*;
 
+mod qed;
+
 #[rustversion::since(1.38)]
 fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
     let rt = start.elapsed().as_secs_f64();

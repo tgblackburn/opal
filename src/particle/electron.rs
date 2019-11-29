@@ -8,6 +8,7 @@ use memoffset::*;
 use crate::constants::*;
 use crate::particle::*;
 use crate::particle::vec3::*;
+use crate::qed::photon_emission;
 
 #[derive(Copy,Clone)]
 pub struct Electron {
@@ -121,6 +122,7 @@ impl Particle for Electron {
         // quantum parameter
         let gamma_half = (1.0 + u_half * u_half).sqrt();
         self.chi = ((gamma_half * E + SPEED_OF_LIGHT * u_half.cross(B)).norm_sqr() - (E * u_half).powi(2)).sqrt() / CRITICAL_FIELD;
+        self.tau = self.tau - photon_emission::classical_rate(self.chi, gamma_half) * dt;
         
         // u' =  u_{i-1/2} + (q dt/2 m c) (2 E + v_{i-1/2} x B)
         let u_prime = u_half + alpha * E;
@@ -223,6 +225,22 @@ impl Electron {
 
     pub fn work(&self) -> f64 {
         self.work
+    }
+
+    pub fn radiate<R: Rng>(&mut self, rng: &mut R) -> Option<Photon> {
+        if (self.tau < 0.0) {
+            // reset optical depth against emission
+            self.tau = rng.sample(Exp1);
+            // determine photon energy and emission angle
+            let (omega_mc2, theta, cphi) = photon_emission::classical_sample(self.chi, self.gamma, rng.gen(), rng.gen(), rng.gen());
+            let u = [self.u.x, self.u.y, self.u.z];
+            // construct photon
+            let photon = Photon::create(self.cell, self.x, &u, self.weight, 0.0, 0.0)
+                .with_optical_depth(rng.sample(Exp1));
+            Some(photon)
+        } else {
+            None
+        }
     }
 }
 
