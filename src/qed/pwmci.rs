@@ -103,7 +103,7 @@ pub fn invert(f: f64, table: &[[f64; 2]]) -> Option<(f64, usize)> {
         return None;
     }
 
-    println!("Root lies between {} and {}", table[i-1][0], table[i][0]);
+    //println!("Root lies between {} and {}", table[i-1][0], table[i][0]);
 
     // Get the tangent slopes at x_{i-1} and x_i, corrected to
     // guarantee monotonicity.
@@ -146,7 +146,7 @@ pub fn invert(f: f64, table: &[[f64; 2]]) -> Option<(f64, usize)> {
         // First try inverse quadratic interpolation,
         // provided all roots are distinct.
         let s = if root[0].f != root[2].f && root[1].f != root[2].f {
-            println!("Attempting inverse quadratic interpolation...");
+            //println!("Attempting inverse quadratic interpolation...");
             let r = root[0].f / root[2].f;
             let s = root[0].f / root[1].f;
             let t = root[1].f / root[2].f;
@@ -155,7 +155,7 @@ pub fn invert(f: f64, table: &[[f64; 2]]) -> Option<(f64, usize)> {
             root[0].x + p / q
         } else {
             // use secant method
-            println!("Attempting linear interpolation...");
+            //println!("Attempting linear interpolation...");
             root[0].x - (root[0].f * (root[0].x - root[1].x) / (root[0].f - root[1].f))
         };
 
@@ -164,11 +164,11 @@ pub fn invert(f: f64, table: &[[f64; 2]]) -> Option<(f64, usize)> {
             || (prev_bisect && (s - root[0].x).abs() >= 0.5 * (root[0].x - root[2].x).abs())
             || (!prev_bisect && (s - root[0].x).abs() >= 0.5 * (root[2].x - root[3].x).abs())
             {
-            println!("Failed, using bisection.");
+            //println!("Failed, using bisection.");
             prev_bisect = true;
             0.5 * (root[0].x + root[1].x)
         } else {
-            println!("Successful!");
+            //println!("Successful!");
             prev_bisect = false;
             s
         };
@@ -192,7 +192,7 @@ pub fn invert(f: f64, table: &[[f64; 2]]) -> Option<(f64, usize)> {
 
         let error = (root[1].x - root[0].x).abs() / root[0].x.abs();
 
-        println!("Root estd to be {:e} (1 pm {:e}).", root[0].x, 0.5 * error);
+        //println!("Root estd to be {:e} (1 pm {:e}).", root[0].x, 0.5 * error);
 
         if error < PRECISION_LIMIT || root[0].f == 0.0 {
             break;

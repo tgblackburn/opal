@@ -60,7 +60,11 @@ impl<'a> Configuration<'a> {
             .var("eV", ELEMENTARY_CHARGE)
             .var("keV", 1.0e3 * ELEMENTARY_CHARGE)
             .var("MeV", 1.0e6 * ELEMENTARY_CHARGE)
+            .var("femto", 1.0e-15)
+            .var("pico", 1.0e-12)
+            .var("nano", 1.0e-9)
             .var("micro", 1.0e-6)
+            .var("milli", 1.0e-3)
             .func3("step", |x, min, max| if x >= min && x < max {1.0} else {0.0})
             .func("critical", |omega| VACUUM_PERMITTIVITY * ELECTRON_MASS * omega.powi(2) / ELEMENTARY_CHARGE.powi(2));
 
