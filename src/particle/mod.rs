@@ -11,16 +11,17 @@ mod electron;
 mod photon;
 mod ion;
 mod vec3;
-mod hgram;
+pub mod hgram;
 
 // Re-export for use in main
 pub use self::electron::*;
 pub use self::photon::*;
 pub use self::ion::*;
+pub use self::hgram::*;
 
 // For local use
 use crate::grid::Grid;
-use hgram::*;
+//use hgram::*;
 
 #[allow(non_snake_case)]
 pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {

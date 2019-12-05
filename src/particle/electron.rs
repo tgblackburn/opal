@@ -248,13 +248,25 @@ impl Electron {
             let parallel: Vec3 = self.u.normalize();
             let perp: Vec3 = parallel.orthogonal();
             let perp = perp.rotate_around(parallel, cphi);
-            let u = omega_mc2 * (theta.cos() * parallel + theta.sin() * perp);
-            let u = [u.x, u.y, u.z];
+            let u = if cfg!(feature = "no_beaming") {
+                omega_mc2 * parallel
+            } else {
+                omega_mc2 * (theta.cos() * parallel + theta.sin() * perp)
+            };
+            
+            // electron recoils
+            if cfg!(not(feature = "no_radiation_reaction")) {
+                self.u = self.u - u;
+                let new_gamma = (1.0 + self.u * self.u).sqrt();
+                self.chi = self.chi * new_gamma / self.gamma;
+                self.gamma = new_gamma;
+            }
             
             // construct photon
+            let u = [u.x, u.y, u.z];
             let photon = Photon::create(self.cell, self.x, &u, self.weight, 0.0, 0.0)
                 .with_optical_depth(rng.sample(Exp1));
-                
+
             Some(photon)
         } else {
             None

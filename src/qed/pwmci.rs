@@ -91,6 +91,23 @@ fn is_between(x: f64, min: f64, max: f64) -> bool {
     }
 }
 
+pub fn evaluate(x: f64, table: &[[f64; 2]]) -> Option<f64> {
+    // Find the i for which table[i-1][1] < f <= table[i][1]
+
+    let mut i = 0;
+    while i < table.len() && x > table[i][0] {
+        i += 1;
+    }
+
+    if i >= table.len() - 1 && x > table.last().unwrap()[0] {
+        return None;
+    }
+
+    let fit_pars = FitParameters::construct(i, table);
+
+    Some(fit_pars.evaluate(x))
+}
+
 pub fn invert(f: f64, table: &[[f64; 2]]) -> Option<(f64, usize)> {
     // Find the i for which table[i-1][1] < f <= table[i][1]
 
@@ -99,7 +116,7 @@ pub fn invert(f: f64, table: &[[f64; 2]]) -> Option<(f64, usize)> {
         i += 1;
     }
 
-    if i == table.len() - 1 && f > table.last().unwrap()[1] {
+    if i >= table.len() - 1 && f > table.last().unwrap()[1] {
         return None;
     }
 
