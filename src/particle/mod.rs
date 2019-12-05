@@ -4,22 +4,24 @@ use std::fmt::{Debug};
 use mpi::traits::*;
 use rand::prelude::*;
 use rand_distr::{StandardNormal, Exp1};
+use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 
 mod electron;
 mod photon;
 mod ion;
 mod vec3;
-mod hgram;
+pub mod hgram;
 
 // Re-export for use in main
 pub use self::electron::*;
 pub use self::photon::*;
 pub use self::ion::*;
+pub use self::hgram::*;
 
 // For local use
 use crate::grid::Grid;
-use hgram::*;
+//use hgram::*;
 
 #[allow(non_snake_case)]
 pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {
@@ -276,22 +278,34 @@ impl<T> Population<T> where T: Particle + Send + Sync {
             f64::atan2(p[2], p[1])
         };
 
+        // Longitude and latitude (0,0) directed along negative x-axis
+        let longitude = |pt : &T| -> f64 {
+            let p = pt.momentum();
+            f64::atan2(p[1], -p[0]) // atan2[(y, x) = (py, -px)]
+        };
+
+        let latitude = |pt: &T| -> f64 {
+            let p = pt.momentum();
+            let magnitude = (p[0].powi(2) + p[1].powi(2) + p[2].powi(2)).sqrt();
+            f64::asin(p[2] / magnitude) // asin(pz/p)
+        };
+
         for o in &self.output {
             // break into substrings, separated by colons
             let mut ss: Vec<&str> = o.split(':').collect();
             // if the final string is bracketed AND there are at least
             // two substrings, that final string might be (bspec; hspec)
-            let (bspec, hspec) = if ss.len() >= 2 && ss.last().unwrap().starts_with('(') && ss.last().unwrap().ends_with(')') {
+            let (bspec, hspec, weight) = if ss.len() >= 2 && ss.last().unwrap().starts_with('(') && ss.last().unwrap().ends_with(')') {
                 let last = ss.pop().unwrap().trim_start_matches('(').trim_end_matches(')');
                 // break this into substrings, separated by ';'
                 let last: Vec<&str> = last.split(';').collect();
                 match last.len() {
-                    1 => (BinSpec::Automatic, last[0].into()),
-                    2 => (last[0].into(), last[1].into()),
-                    _ => (BinSpec::Automatic, HeightSpec::Density),
+                    1 => (BinSpec::Automatic, HeightSpec::Density, last[0]),
+                    2 => (last[0].into(), HeightSpec::Density, last[1]),
+                    _ => (BinSpec::Automatic, HeightSpec::Density, "weight"),
                 }
             } else {
-                (BinSpec::Automatic, HeightSpec::Density)
+                (BinSpec::Automatic, HeightSpec::Density, "weight")
             };
 
             // convert each string to a closure
@@ -309,6 +323,8 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                         "pz" => Some(Box::new(pz) as ParticleOutput<T>),
                         "theta" => Some(Box::new(polar_angle) as ParticleOutput<T>),
                         "phi" => Some(Box::new(azimuthal_angle) as ParticleOutput<T>),
+                        "longitude" => Some(Box::new(longitude) as ParticleOutput<T>),
+                        "latitude" => Some(Box::new(latitude) as ParticleOutput<T>),
                         "work" => Some(Box::new(work) as ParticleOutput<T>),
                         "chi" => Some(Box::new(chi) as ParticleOutput<T>),
                         _ => None,
@@ -322,28 +338,37 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                         "x" => Some("m"),
                         "energy" => Some("MeV"),
                         "px" | "py" | "pz" => Some("MeV/c"),
-                        "theta" | "phi" | "theta_x" | "theta_y" => Some("rad"),
+                        "theta" | "phi" | "longitude" | "latitude" => Some("rad"),
                         "work" => Some("J"),
                         "chi" => Some("1"),
                         _ => None,
                     }})
                 .collect();
 
-            if funcs.iter().all(Option::is_some) {
+            let weight_function = match weight {
+                "energy" => Some(Box::new(|pt: &T| pt.energy() * pt.weight()) as ParticleOutput<T>),
+                "weight" => Some(Box::new(|pt: &T| pt.weight()) as ParticleOutput<T>),
+                _ => None,
+            };
+
+            if funcs.iter().all(Option::is_some) && weight_function.is_some() {
                 //println!("{:?} successfully mapped to {} funcs, bspec = {}, hspec = {}", o, funcs.len(), bspec, hspec);
                 
                 let (hgram, filename) = match funcs.len() {
                     1 => {
                         let hgram = Histogram::generate_1d(
-                            comm, &self.store, funcs[0].as_ref().unwrap(), &Particle::weight,
+                            comm, &self.store, funcs[0].as_ref().unwrap(), &weight_function.unwrap(),
                             ss[0], units[0].unwrap(), bspec, hspec
                         );
 
-                        let filename = if bspec == BinSpec::LogScaled {
-                            format!("!{}/{}_{}_{}_log.fits", directory, index, &self.name, ss[0])
-                        } else {
-                            format!("!{}/{}_{}_{}.fits", directory, index, &self.name, ss[0])
-                        };
+                        let mut filename = format!("!{}/{}_{}_{}", directory, index, &self.name, ss[0]);
+                        if weight != "weight" {
+                            filename = filename + "_" + weight;
+                        }
+                        if bspec == BinSpec::LogScaled {
+                            filename = filename + "_log";
+                        }
+                        let filename = filename + ".fits";
 
                         (hgram, filename)
                     },
@@ -351,16 +376,19 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                         let hgram = Histogram::generate_2d(
                             comm, &self.store,
                             [funcs[0].as_ref().unwrap(), funcs[1].as_ref().unwrap()],
-                            &Particle::weight,
+                            &weight_function.unwrap(),
                             [ss[0], ss[1]], [units[0].unwrap(), units[1].unwrap()],
                             [bspec, bspec], hspec
                         );
 
-                        let filename = if bspec == BinSpec::LogScaled {
-                            format!("!{}/{}_{}_{}-{}_log.fits", directory, index, &self.name, ss[0], ss[1])
-                        } else {
-                            format!("!{}/{}_{}_{}-{}.fits", directory, index, &self.name, ss[0], ss[1])
-                        };
+                        let mut filename = format!("!{}/{}_{}_{}-{}", directory, index, &self.name, ss[0], ss[1]);
+                        if weight != "weight" {
+                            filename = filename + "_" + weight;
+                        }
+                        if bspec == BinSpec::LogScaled {
+                            filename = filename + "_log";
+                        }
+                        let filename = filename + ".fits";
 
                         (hgram, filename)
                     }
@@ -378,6 +406,66 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
         Ok(())
     }
+}
+
+// Couple different particle species here:
+
+pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, min_energy: Option<f64>, max_angle: Option<f64>) {
+    let ne = e.store.len();
+    let nthreads = rayon::current_num_threads();
+    // chunk length cannot be zero
+    let chunk_len = if ne > nthreads {
+        ne / nthreads
+    } else {
+        1 // guarantee this runs
+    };
+
+    // find an rng that can be skipped ahead
+    // each thread clones and jumps ahead by a different amount
+    // finally, rng is jumped ahead by the total
+    let emitted: Vec<Photon> = e.store
+        .par_chunks_mut(chunk_len)
+        .enumerate()
+        .map(|(i, chunk): (usize, &mut [Electron])| -> Vec<Photon> {
+            let mut rng = rng.clone();
+            for _ in 0..i {
+                rng.jump(); // avoid overlapping sequences of randoms
+            }
+            let mut v: Vec<Photon> = Vec::new();
+            for e in chunk {
+                let photon = e.radiate(&mut rng);
+                if photon.is_none() {
+                    continue;
+                } else {
+                    let photon = photon.unwrap();
+
+                    let energy_within_bounds = if let Some(min) = min_energy {
+                        photon.energy() >= min
+                    } else {
+                        true
+                    };
+
+                    let angle_within_bounds = if let Some(max) = max_angle {
+                        let p = photon.momentum();
+                        let magnitude = (p[0].powi(2) + p[1].powi(2) + p[2].powi(2)).sqrt();
+                        let angle = f64::acos(-p[0] / magnitude); // polar angle to negative x-axis
+                        angle <= max
+                    } else {
+                        true
+                    };
+
+                    if energy_within_bounds && angle_within_bounds {
+                        v.push(photon);
+                    }
+                }
+            }
+            v
+        })
+        .flatten()
+        .collect();
+
+    rng.long_jump();
+    ph.store.extend_from_slice(&emitted[..]);
 }
 
 

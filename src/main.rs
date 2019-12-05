@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use mpi::traits::*;
 use indicatif::FormattedDuration;
 use rand::prelude::*;
-use rand_chacha::*;
+//use rand_chacha::*;
+use rand_xoshiro::*;
 
 mod constants;
 use constants::*;
@@ -17,6 +18,8 @@ use particle::*;
 
 mod setup;
 use setup::*;
+
+mod qed;
 
 #[rustversion::since(1.38)]
 fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
@@ -38,7 +41,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let world = universe.world();
     let id = world.rank();
 
-    let mut rng = ChaCha8Rng::seed_from_u64(id as u64);
+    let mut rng = Xoshiro256StarStar::seed_from_u64(id as u64);
 
     // Prepare configuration file
 
@@ -62,6 +65,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tend = input.real("control", "end")?;
     let current_deposition = input.bool("control", "current_deposition")?;
     let output_frequency = input.integer("control", "n_outputs")? as usize;
+
+    let photon_emission = input.bool("qed", "photon_emission")?;
+    let photon_energy_min = input.real("qed", "photon_energy_min").ok(); // convert to Option
+    let photon_angle_max = input.real("qed", "photon_angle_max").ok();
 
     // Grid initialization
 
@@ -107,6 +114,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         Population::new_empty()
     };
 
+    // Photons only looked for if 'photon_emission' is on
+    let mut photons: Population<Photon> = if photon_emission {
+        let ppc = input.integer("photons", "npc")?;
+        let pospec = input.strings("photons", "output")?;
+        let mut photons: Population<Photon> = if ppc > 0 {
+            let nph = input.func("photons", "nph", "x")?;
+            let ux = input.func3("photons", "ux", ["x", "urand", "nrand"])?;
+            let uy = input.func3("photons", "uy", ["x", "urand", "nrand"])?;
+            let uz = input.func3("photons", "uz", ["x", "urand", "nrand"])?;
+            Population::new(ppc as usize, nph, ux, uy, uz, &grid, &mut rng, dt)
+        } else {
+            Population::new_empty()
+        };
+        photons.with_output(pospec).with_name("photons");
+        photons
+    } else {
+        Population::new_empty()
+    };
+
     // Initial conditions
 
     if current_deposition {
@@ -128,6 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         grid.write_data(world, output_dir, i)?;
         electrons.write_data(&world, &grid, output_dir, i)?;
         ions.write_data(&world, &grid, output_dir, i)?;
+        photons.write_data(&world, &grid, output_dir, i)?;
 
         if grid.rank() == 0 {
             if i > 0 {
@@ -147,6 +174,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             //println!("{} at i = {}, j = {} [steps between output = {}]", id, i, _j, steps_bt_output);
             electrons.advance(&world, &grid, dt);
             ions.advance(&world, &grid, dt);
+            photons.advance(&world, &grid, dt);
+
+            if photon_emission {
+                emit_radiation(&mut electrons, &mut photons, &mut rng, photon_energy_min, photon_angle_max);
+            }
 
             if current_deposition {
                 grid.clear();
@@ -165,6 +197,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     grid.write_data(world, output_dir, output_frequency)?;
     electrons.write_data(&world, &grid, output_dir, output_frequency)?;
     ions.write_data(&world, &grid, output_dir, output_frequency)?;
+    photons.write_data(&world, &grid, output_dir, output_frequency)?;
 
     if grid.rank() == 0 {
         println!(

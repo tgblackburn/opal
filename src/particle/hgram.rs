@@ -200,14 +200,20 @@ impl Histogram {
         let mut total = 0.0;
 
         for e in base.iter() {
-            let bin = if bspec == BinSpec::LogScaled {
-                ((accessor(e).ln() - gmin) / bin_vol).floor() as usize
+            let value = if bspec == BinSpec::LogScaled {
+                accessor(e).ln()
             } else {
-                ((accessor(e) - gmin) / bin_vol).floor() as usize
+                accessor(e)
             };
+
+            let bin = ((value - gmin) / bin_vol).floor() as usize;
 
             let w = weight(e);
             total = total + w; // count everything, even if not binned
+
+            if !value.is_finite() {
+                continue;
+            }
 
             // adjust weight to include actual size of bin / log-scaled size
             let w = if bspec == BinSpec::LogScaled && (hspec == HeightSpec::Density || hspec == HeightSpec::ProbabilityDensity) {
@@ -310,13 +316,17 @@ impl Histogram {
                 .map(|(&b, &f)| if b == BinSpec::LogScaled {f(e).ln()} else {f(e)})
                 .collect();
 
+            let mut w = weight(e);
+            total = total + w; // count everything, even if not binned
+
+            if value.iter().any(|&x| !x.is_finite()) {
+                continue; // all of value[i] must be finite
+            }
+
             let bin = [
                 if bin_sz[0] == 0.0 {0} else {((value[0] - gmin[0]) / bin_sz[0]).floor() as usize},
                 if bin_sz[1] == 0.0 {0} else {((value[1] - gmin[1]) / bin_sz[1]).floor() as usize},
             ];
-
-            let mut w = weight(e);
-            total = total + w; // count everything, even if not binned
 
             // adjust weight to include actual size of bin / log-scaled size
             //if bspec[0] == BinSpec::LogScaled && (hspec == HeightSpec::Density || hspec == HeightSpec::ProbabilityDensity) {

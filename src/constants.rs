@@ -8,3 +8,5 @@ pub const ELECTRON_MASS: f64 = 9.109383e-31;
 pub const PROTON_MASS: f64 = 1.672622e-27;
 pub const ELECTRON_MASS_MEV: f64 = 0.510999;
 pub const CRITICAL_FIELD: f64 = 1.323285e18;
+pub const ALPHA_FINE: f64 = 7.29735257e-3;
+pub const COMPTON_TIME: f64 = 1.28808867e-21;
