@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let output_frequency = input.integer("control", "n_outputs")? as usize;
 
     let photon_emission = input.bool("qed", "photon_emission")?;
-    let photon_energy_min = input.real("qed", "photon_energy_min").ok(); // convert to Option
+    let photon_energy_min = input.real("qed", "photon_energy_min").ok().map(|j| 1.0e-6 * j / ELEMENTARY_CHARGE); // convert to Option, then map joules to MeV
     let photon_angle_max = input.real("qed", "photon_angle_max").ok();
 
     let photon_absorption = input.bool("qed", "photon_absorption")?;
