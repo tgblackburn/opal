@@ -21,6 +21,7 @@ pub struct Electron {
     chi: f64,
     tau: f64,
     work: f64,
+    flag: bool,
 }
 
 impl fmt::Debug for Electron {
@@ -32,7 +33,7 @@ impl fmt::Debug for Electron {
 unsafe impl Equivalence for Electron {
     type Out = UserDatatype;
     fn equivalent_datatype() -> Self::Out {
-        let blocklengths = [1; 9];
+        let blocklengths = [1; 10];
         let displacements = [
             offset_of!(Electron, cell) as mpi::Address,
             offset_of!(Electron, prev_x) as mpi::Address,
@@ -43,8 +44,9 @@ unsafe impl Equivalence for Electron {
             offset_of!(Electron, chi) as mpi::Address,
             offset_of!(Electron, tau) as mpi::Address,
             offset_of!(Electron, work) as mpi::Address,
+            offset_of!(Electron, flag) as mpi::Address,
         ];
-        let types: [&dyn Datatype; 9] = [
+        let types: [&dyn Datatype; 10] = [
             &isize::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
@@ -54,8 +56,9 @@ unsafe impl Equivalence for Electron {
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
+            &bool::equivalent_datatype(),
         ];
-        UserDatatype::structured(9, &blocklengths, &displacements, &types)
+        UserDatatype::structured(10, &blocklengths, &displacements, &types)
     }
 }
 
@@ -87,6 +90,7 @@ impl Particle for Electron {
             chi: 0.0,
             tau: std::f64::INFINITY,
             work: 0.0,
+            flag: false,
         }
     }
 
@@ -212,6 +216,22 @@ impl Particle for Electron {
         pt.tau = tau;
         pt
     }
+
+    fn flag(&mut self) {
+        self.flag = true;
+    }
+
+    fn unflag(&mut self) {
+        self.flag = false;
+    }
+
+    fn is_flagged(&self) -> bool {
+        self.flag
+    }
+
+    fn normalized_four_momentum(&self) -> [f64; 4] {
+        [self.gamma, self.u.x, self.u.y, self.u.z]
+    }
 }
 
 #[allow(unused)]
@@ -271,6 +291,14 @@ impl Electron {
         } else {
             None
         }
+    }
+
+    pub fn absorb(&mut self, photon: &Photon) {
+        let k = photon.momentum(); // in units of MeV
+        self.u.x += k[0] / ELECTRON_MASS_MEV;
+        self.u.y += k[1] / ELECTRON_MASS_MEV;
+        self.u.z += k[2] / ELECTRON_MASS_MEV;
+        self.gamma = (1.0 + self.u.norm_sqr()).sqrt();
     }
 }
 

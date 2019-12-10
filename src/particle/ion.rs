@@ -22,6 +22,7 @@ pub struct Ion {
     gamma_m1: f64,
     u: Vec3,
     work: f64,
+    flag: bool,
 }
 
 impl fmt::Debug for Ion {
@@ -33,7 +34,7 @@ impl fmt::Debug for Ion {
 unsafe impl Equivalence for Ion {
     type Out = UserDatatype;
     fn equivalent_datatype() -> Self::Out {
-        let blocklengths = [1; 10];
+        let blocklengths = [1; 11];
         let displacements = [
             offset_of!(Ion, cell) as mpi::Address,
             offset_of!(Ion, prev_x) as mpi::Address,
@@ -45,8 +46,9 @@ unsafe impl Equivalence for Ion {
             offset_of!(Ion, gamma_m1) as mpi::Address,
             offset_of!(Ion, u) as mpi::Address,
             offset_of!(Ion, work) as mpi::Address,
+            offset_of!(Ion, flag) as mpi::Address,
         ];
-        let types: [&dyn Datatype; 10] = [
+        let types: [&dyn Datatype; 11] = [
             &isize::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
@@ -57,8 +59,9 @@ unsafe impl Equivalence for Ion {
             &f64::equivalent_datatype(),
             &Vec3::equivalent_datatype(),
             &f64::equivalent_datatype(),
+            &bool::equivalent_datatype(),
         ];
-        UserDatatype::structured(10, &blocklengths, &displacements, &types)
+        UserDatatype::structured(11, &blocklengths, &displacements, &types)
     }
 }
 
@@ -93,6 +96,7 @@ impl Particle for Ion {
             gamma_m1: gamma_m1,
             u: u,
             work: 0.0,
+            flag: false,
         }
     }
 
@@ -189,6 +193,22 @@ impl Particle for Ion {
         //self.cell += floor as usize;
         self.prev_x -= floor;
         self.x -= floor;
+    }
+
+    fn flag(&mut self) {
+        self.flag = true;
+    }
+
+    fn unflag(&mut self) {
+        self.flag = false;
+    }
+
+    fn is_flagged(&self) -> bool {
+        self.flag
+    }
+
+    fn normalized_four_momentum(&self) -> [f64; 4] {
+        [1.0 + self.gamma_m1, self.u.x, self.u.y, self.u.z]
     }
 }
 

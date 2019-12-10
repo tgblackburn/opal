@@ -2,6 +2,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use mpi::traits::*;
+use mpi::Threading;
 use indicatif::FormattedDuration;
 use rand::prelude::*;
 //use rand_chacha::*;
@@ -37,11 +38,12 @@ fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let universe = mpi::initialize().unwrap();
+    let (universe, _) = mpi::initialize_with_threading(Threading::Funneled).unwrap();
     let world = universe.world();
     let id = world.rank();
 
     let mut rng = Xoshiro256StarStar::seed_from_u64(id as u64);
+    qed::photon_absorption::disable_gsl_abort_on_error();
 
     // Prepare configuration file
 
@@ -69,6 +71,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let photon_emission = input.bool("qed", "photon_emission")?;
     let photon_energy_min = input.real("qed", "photon_energy_min").ok(); // convert to Option
     let photon_angle_max = input.real("qed", "photon_angle_max").ok();
+
+    let photon_absorption = input.bool("qed", "photon_absorption")?;
 
     // Grid initialization
 
@@ -114,8 +118,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Population::new_empty()
     };
 
-    // Photons only looked for if 'photon_emission' is on
-    let mut photons: Population<Photon> = if photon_emission {
+    // Photons only looked for if 'photon_emission' or 'photon_absorption' are on
+    let mut photons: Population<Photon> = if photon_emission || photon_absorption {
         let ppc = input.integer("photons", "npc")?;
         let pospec = input.strings("photons", "output")?;
         let mut photons: Population<Photon> = if ppc > 0 {
@@ -175,6 +179,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             electrons.advance(&world, &grid, dt);
             ions.advance(&world, &grid, dt);
             photons.advance(&world, &grid, dt);
+
+            if photon_absorption {
+                absorb(&mut electrons, &mut photons, dt, grid.dx());
+            }
 
             if photon_emission {
                 emit_radiation(&mut electrons, &mut photons, &mut rng, photon_energy_min, photon_angle_max);
