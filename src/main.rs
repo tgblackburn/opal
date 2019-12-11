@@ -71,6 +71,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let photon_emission = input.bool("qed", "photon_emission")?;
     let photon_energy_min = input.real("qed", "photon_energy_min").ok().map(|j| 1.0e-6 * j / ELEMENTARY_CHARGE); // convert to Option, then map joules to MeV
     let photon_angle_max = input.real("qed", "photon_angle_max").ok();
+    let max_formation_length = input.real("qed", "max_formation_length").ok();
 
     let photon_absorption = input.bool("qed", "photon_absorption")?;
 
@@ -186,7 +187,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
 
             if photon_emission {
-                emit_radiation(&mut electrons, &mut photons, &mut rng, photon_energy_min, photon_angle_max);
+                emit_radiation(&mut electrons, &mut photons, &mut rng, photon_energy_min, photon_angle_max, max_formation_length);
             }
 
             if current_deposition {

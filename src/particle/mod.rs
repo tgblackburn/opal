@@ -423,7 +423,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
 // Couple different particle species here:
 
-pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, min_energy: Option<f64>, max_angle: Option<f64>) {
+pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, min_energy: Option<f64>, max_angle: Option<f64>, max_formation_length: Option<f64>) {
     let ne = e.store.len();
     let nthreads = rayon::current_num_threads();
     // chunk length cannot be zero
@@ -446,11 +446,11 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
             }
             let mut v: Vec<Photon> = Vec::new();
             for e in chunk {
-                let photon = e.radiate(&mut rng);
-                if photon.is_none() {
+                let result = e.radiate(&mut rng);
+                if result.is_none() {
                     continue;
                 } else {
-                    let photon = photon.unwrap();
+                    let (photon, formation_length) = result.unwrap();
 
                     let energy_within_bounds = if let Some(min) = min_energy {
                         photon.energy() >= min
@@ -467,7 +467,13 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
                         true
                     };
 
-                    if energy_within_bounds && angle_within_bounds {
+                    let formation_length_ok = if let Some(max) = max_formation_length {
+                        formation_length < max
+                    } else {
+                        true
+                    };
+
+                    if energy_within_bounds && angle_within_bounds && formation_length_ok {
                         v.push(photon);
                     }
                 }

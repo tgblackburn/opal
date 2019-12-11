@@ -252,7 +252,7 @@ impl Electron {
         self.work
     }
 
-    pub fn radiate<R: Rng>(&mut self, rng: &mut R) -> Option<Photon> {
+    pub fn radiate<R: Rng>(&mut self, rng: &mut R) -> Option<(Photon, f64)> {
         if self.tau < 0.0 {
             // reset optical depth against emission
             self.tau = rng.sample(Exp1);
@@ -273,7 +273,10 @@ impl Electron {
             } else {
                 omega_mc2 * (theta.cos() * parallel + theta.sin() * perp)
             };
-            
+
+            // estimate photon formation length
+            let formation_length = 2.0 * self.gamma.powi(2) * theta * SPEED_OF_LIGHT * COMPTON_TIME / self.chi;
+
             // electron recoils
             if cfg!(not(feature = "no_radiation_reaction")) {
                 self.u = self.u - u;
@@ -287,7 +290,7 @@ impl Electron {
             let photon = Photon::create(self.cell, self.x, &u, self.weight, 0.0, 0.0)
                 .with_optical_depth(rng.sample(Exp1));
 
-            Some(photon)
+            Some((photon, formation_length))
         } else {
             None
         }
