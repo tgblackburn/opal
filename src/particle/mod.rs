@@ -268,6 +268,11 @@ impl<T> Population<T> where T: Particle + Send + Sync {
             pt.momentum()[2]
         };
 
+        let p_perp = |pt: &T| -> f64 {
+            let p = pt.momentum();
+            p[1].hypot(p[2])
+        };
+
         let chi = |pt: &T| -> f64 {
             pt.chi()
         };
@@ -328,6 +333,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                         "px" => Some(Box::new(px) as ParticleOutput<T>),
                         "py" => Some(Box::new(py) as ParticleOutput<T>),
                         "pz" => Some(Box::new(pz) as ParticleOutput<T>),
+                        "p_perp" => Some(Box::new(p_perp) as ParticleOutput<T>),
                         "theta" => Some(Box::new(polar_angle) as ParticleOutput<T>),
                         "phi" => Some(Box::new(azimuthal_angle) as ParticleOutput<T>),
                         "longitude" => Some(Box::new(longitude) as ParticleOutput<T>),
@@ -344,7 +350,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                     match s {
                         "x" => Some("m"),
                         "energy" => Some("MeV"),
-                        "px" | "py" | "pz" => Some("MeV/c"),
+                        "px" | "py" | "pz" | "p_perp" => Some("MeV/c"),
                         "theta" | "phi" | "longitude" | "latitude" => Some("rad"),
                         "work" => Some("J"),
                         "chi" => Some("1"),
@@ -354,7 +360,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
             let weight_function = match weight {
                 "energy" => Some(Box::new(|pt: &T| pt.energy() * pt.weight()) as ParticleOutput<T>),
-                "weight" => Some(Box::new(|pt: &T| pt.weight()) as ParticleOutput<T>),
+                "weight" | "auto" => Some(Box::new(|pt: &T| pt.weight()) as ParticleOutput<T>),
                 _ => None,
             };
 

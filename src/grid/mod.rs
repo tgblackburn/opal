@@ -19,7 +19,7 @@ pub trait Grid {
     fn ngrids(&self) -> i32;
     fn to_left(&self) -> Option<i32>;
     fn to_right(&self) -> Option<i32>;
-    fn synchronize(&mut self, comm: impl Communicator, laser: &impl Fn(f64, f64) -> f64, t: f64);
+    fn synchronize(&mut self, comm: impl Communicator, laser_y: &impl Fn(f64, f64) -> f64, laser_z: &impl Fn(f64, f64) -> f64, t: f64);
     fn advance(&mut self, dt: f64);
     fn fields_at(&self, c: isize, x: f64) -> ([f64; 3], [f64; 3]);
     fn xmin(&self) -> f64;

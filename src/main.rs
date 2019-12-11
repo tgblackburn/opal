@@ -76,7 +76,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Grid initialization
 
-    let laser = input.func2("laser", "field", ["t", "x"])?;
+    let laser_y = input.func2("laser", "Ey", ["t", "x"])?;
+    let laser_z = input.func2("laser", "Ez", ["t", "x"])?;
     let mut grid = YeeGrid::new(world, nx, xmin, dx, Boundary::Laser);
 
     // Particle initialization
@@ -142,7 +143,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if current_deposition {
         grid.deposit(electrons.all(), dt);
         grid.deposit(ions.all(), dt);
-        grid.synchronize(world, &laser, 0.0);
+        grid.synchronize(world, &laser_y, &laser_z, 0.0);
         grid.initialize(world);
     }
 
@@ -194,7 +195,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 grid.deposit(ions.all(), dt);
             }
 
-            grid.synchronize(world, &laser, t);
+            grid.synchronize(world, &laser_y, &laser_z, t);
             grid.advance(dt);
             t += dt;
         }
