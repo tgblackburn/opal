@@ -17,6 +17,8 @@ pub struct Photon {
     cell: isize,
     prev_x: f64,
     x: f64,
+    y: f64,
+    z: f64,
     weight: f64,
     k: Vec3, // momentum / mc
     pol: [Complex<f64>; 2],
@@ -36,11 +38,13 @@ impl fmt::Debug for Photon {
 unsafe impl Equivalence for Photon {
     type Out = UserDatatype;
     fn equivalent_datatype() -> Self::Out {
-        let blocklengths = [1, 1, 1, 1, 1, 4, 2, 1, 2, 1, 1];
+        let blocklengths = [1, 1, 1, 1, 1, 1, 1, 4, 2, 1, 2, 1, 1];
         let displacements = [
             offset_of!(Photon, cell) as mpi::Address,
             offset_of!(Photon, prev_x) as mpi::Address,
             offset_of!(Photon, x) as mpi::Address,
+            offset_of!(Photon, y) as mpi::Address,
+            offset_of!(Photon, z) as mpi::Address,
             offset_of!(Photon, weight) as mpi::Address,
             offset_of!(Photon, k) as mpi::Address,
             offset_of!(Photon, pol) as mpi::Address,
@@ -50,8 +54,10 @@ unsafe impl Equivalence for Photon {
             offset_of!(Photon, tau_abs) as mpi::Address,
             offset_of!(Photon, flag) as mpi::Address,
         ];
-        let types: [&dyn Datatype; 11] = [
+        let types: [&dyn Datatype; 13] = [
             &isize::equivalent_datatype(),
+            &f64::equivalent_datatype(),
+            &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
@@ -63,7 +69,7 @@ unsafe impl Equivalence for Photon {
             &f64::equivalent_datatype(),
             &bool::equivalent_datatype(),
         ];
-        UserDatatype::structured(11, &blocklengths, &displacements, &types)
+        UserDatatype::structured(13, &blocklengths, &displacements, &types)
     }
 }
 
@@ -88,6 +94,8 @@ impl Particle for Photon {
             cell: cell,
             prev_x: prev_x,
             x: x,
+            y: 0.0,
+            z: 0.0,
             weight: weight,
             k: k,
             pol: [Complex::new(0.0, 0.0), Complex::new(0.0, 0.0)],
@@ -132,6 +140,10 @@ impl Particle for Photon {
         assert!(dxi < 1.0);
         self.x = self.x + dxi;
 
+        // transverse position
+        self.y = self.y + v.y * dt;
+        self.z = self.z + v.z * dt;
+
         // adjust for crossing a cell boundary
         let floor = self.x.floor();
         self.cell = if floor < 0.0 {
@@ -148,6 +160,10 @@ impl Particle for Photon {
 
     fn location(&self) -> (isize, f64, f64) {
         (self.cell, self.x, self.prev_x)
+    }
+
+    fn transverse_displacement(&self) -> f64 {
+        self.y.hypot(self.z)
     }
 
     fn shift_cell(&mut self, delta: isize) {
@@ -241,7 +257,7 @@ impl Photon {
 
         if let Some(sigma) = photon_absorption::scaled_cross_section(k, p, chi_gamma, chi_e) {
             let partial_prob = e.weight() * (SPEED_OF_LIGHT * dt / dx) * sigma;
-            if partial_prob < 0.0 || partial_prob > 1.0 || !partial_prob.is_finite() {
+            if partial_prob < 0.0 || !partial_prob.is_finite() {
                 println!("k = {:?}, p = {:?}, chi_gamma = {}, chi_e = {}, sigma = {}", k, p, chi_gamma, e.chi(), sigma);
             }
             assert!(partial_prob >= 0.0);

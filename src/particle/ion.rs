@@ -104,6 +104,10 @@ impl Particle for Ion {
         (self.cell, self.x, self.prev_x)
     }
 
+    fn transverse_displacement(&self) -> f64 {
+        0.0
+    }
+
     fn shift_cell(&mut self, delta: isize) {
         self.cell += delta;
     }

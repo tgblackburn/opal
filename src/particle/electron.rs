@@ -15,6 +15,8 @@ pub struct Electron {
     cell: isize,
     prev_x: f64,
     x: f64,
+    y: f64,
+    z: f64,
     weight: f64,
     gamma: f64,
     u: Vec3,
@@ -33,11 +35,13 @@ impl fmt::Debug for Electron {
 unsafe impl Equivalence for Electron {
     type Out = UserDatatype;
     fn equivalent_datatype() -> Self::Out {
-        let blocklengths = [1; 10];
+        let blocklengths = [1; 12];
         let displacements = [
             offset_of!(Electron, cell) as mpi::Address,
             offset_of!(Electron, prev_x) as mpi::Address,
             offset_of!(Electron, x) as mpi::Address,
+            offset_of!(Electron, y) as mpi::Address,
+            offset_of!(Electron, z) as mpi::Address,
             offset_of!(Electron, weight) as mpi::Address,
             offset_of!(Electron, gamma) as mpi::Address,
             offset_of!(Electron, u) as mpi::Address,
@@ -46,8 +50,10 @@ unsafe impl Equivalence for Electron {
             offset_of!(Electron, work) as mpi::Address,
             offset_of!(Electron, flag) as mpi::Address,
         ];
-        let types: [&dyn Datatype; 10] = [
+        let types: [&dyn Datatype; 12] = [
             &isize::equivalent_datatype(),
+            &f64::equivalent_datatype(),
+            &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
@@ -58,7 +64,7 @@ unsafe impl Equivalence for Electron {
             &f64::equivalent_datatype(),
             &bool::equivalent_datatype(),
         ];
-        UserDatatype::structured(10, &blocklengths, &displacements, &types)
+        UserDatatype::structured(12, &blocklengths, &displacements, &types)
     }
 }
 
@@ -84,6 +90,8 @@ impl Particle for Electron {
             cell: cell,
             prev_x: prev_x,
             x: x,
+            y: 0.0,
+            z: 0.0,
             weight: weight,
             gamma: gamma,
             u: u,
@@ -98,79 +106,13 @@ impl Particle for Electron {
         (self.cell, self.x, self.prev_x)
     }
 
-    /// Advances the particle momentum and position using
-    /// the leapfrog pusher developed by Vay et al.,
-    /// see https://doi.org/10.1063/1.2837054.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// let e = Electron::create(0.0, &[1.0, 0.0, 0.0]);
-    /// let E = [0.0, 0.0, 0.0];
-    /// let B = [0.0, 0.0, 1.0];
-    /// let dt = 1.0e-6 / SPEED_OF_LIGHT;
-    /// e.push(&E, &B, dt);
-    /// ```
+    fn transverse_displacement(&self) -> f64 {
+        self.y.hypot(self.z)
+    }
+
+    #[inline]
     fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64) {
-        let E = Vec3::new_from_slice(E);
-        let B = Vec3::new_from_slice(B);
-        
-        // velocity in SI units
-        let v = SPEED_OF_LIGHT * self.u / self.gamma;
-
-        // u_i = u_{i-1/2} + (q dt/2 m c) (E + v_{i-1/2} x B)
-        let alpha = ELECTRON_CHARGE * dt / (2.0 * ELECTRON_MASS * SPEED_OF_LIGHT);
-        let u_half = self.u + alpha * (E + v.cross(B));
-        self.work += ELECTRON_CHARGE * SPEED_OF_LIGHT * (u_half * E) * dt / (1.0 + u_half * u_half).sqrt();
-        
-        // quantum parameter
-        let gamma_half = (1.0 + u_half * u_half).sqrt();
-        self.chi = ((gamma_half * E + SPEED_OF_LIGHT * u_half.cross(B)).norm_sqr() - (E * u_half).powi(2)).sqrt() / CRITICAL_FIELD;
-
-        if cfg!(feature = "no_radiation_reaction") {
-            self.tau = self.tau - photon_emission::classical_rate(self.chi, gamma_half) * dt;
-        } else {
-            self.tau = self.tau - photon_emission::rate(self.chi, gamma_half) * dt;
-        }
-        
-        // u' =  u_{i-1/2} + (q dt/2 m c) (2 E + v_{i-1/2} x B)
-        let u_prime = u_half + alpha * E;
-        let gamma_prime_sqd = 1.0 + u_prime * u_prime;
-
-        // update Lorentz factor
-        let tau = alpha * SPEED_OF_LIGHT * B;
-        let u_star = u_prime * tau;
-        let sigma = gamma_prime_sqd - tau * tau;
-
-        self.gamma = (
-            0.5 * sigma +
-            (0.25 * sigma.powi(2) + tau * tau + u_star.powi(2)).sqrt()
-        ).sqrt();
-
-        // and momentum
-        let t = tau / self.gamma;
-        let s = 1.0 / (1.0 + t * t);
-
-        self.u = s * (u_prime + (u_prime * t) * t + u_prime.cross(t));
-
-        // then the position
-        self.prev_x = self.x;
-        let dxi = SPEED_OF_LIGHT * self.u.x * dt / (dx * self.gamma);
-        assert!(dxi < 1.0);
-        self.x = self.x + dxi;
-
-        // adjust for crossing a cell boundary
-        let floor = self.x.floor();
-        self.cell = if floor < 0.0 {
-            self.cell - 1
-        } else if floor > 0.0 {
-            self.cell + 1
-        } else {
-            self.cell
-        };
-        //self.cell += floor as usize;
-        self.prev_x -= floor;
-        self.x -= floor;
+        self.vay_push(E, B, dx, dt)
     }
 
     fn energy(&self) -> f64 {
@@ -302,6 +244,134 @@ impl Electron {
         self.u.y += k[1] / ELECTRON_MASS_MEV;
         self.u.z += k[2] / ELECTRON_MASS_MEV;
         self.gamma = (1.0 + self.u.norm_sqr()).sqrt();
+    }
+
+    /// Advances the particle momentum and position using
+    /// the leapfrog pusher developed by Vay et al.,
+    /// see https://doi.org/10.1063/1.2837054.
+    #[allow(non_snake_case)]
+    pub fn vay_push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64) {
+        let E = Vec3::new_from_slice(E);
+        let B = Vec3::new_from_slice(B);
+        
+        // velocity in SI units
+        let v = SPEED_OF_LIGHT * self.u / self.gamma;
+
+        // u_i = u_{i-1/2} + (q dt/2 m c) (E + v_{i-1/2} x B)
+        let alpha = ELECTRON_CHARGE * dt / (2.0 * ELECTRON_MASS * SPEED_OF_LIGHT);
+        let u_half = self.u + alpha * (E + v.cross(B));
+        self.work += ELECTRON_CHARGE * SPEED_OF_LIGHT * (u_half * E) * dt / (1.0 + u_half * u_half).sqrt();
+        
+        // quantum parameter
+        let gamma_half = (1.0 + u_half * u_half).sqrt();
+        self.chi = ((gamma_half * E + SPEED_OF_LIGHT * u_half.cross(B)).norm_sqr() - (E * u_half).powi(2)).sqrt() / CRITICAL_FIELD;
+
+        if cfg!(feature = "no_radiation_reaction") {
+            self.tau = self.tau - photon_emission::classical_rate(self.chi, gamma_half) * dt;
+        } else {
+            self.tau = self.tau - photon_emission::rate(self.chi, gamma_half) * dt;
+        }
+        
+        // u' =  u_{i-1/2} + (q dt/2 m c) (2 E + v_{i-1/2} x B)
+        let u_prime = u_half + alpha * E;
+        let gamma_prime_sqd = 1.0 + u_prime * u_prime;
+
+        // update Lorentz factor
+        let tau = alpha * SPEED_OF_LIGHT * B;
+        let u_star = u_prime * tau;
+        let sigma = gamma_prime_sqd - tau * tau;
+
+        self.gamma = (
+            0.5 * sigma +
+            (0.25 * sigma.powi(2) + tau * tau + u_star.powi(2)).sqrt()
+        ).sqrt();
+
+        // and momentum
+        let t = tau / self.gamma;
+        let s = 1.0 / (1.0 + t * t);
+
+        self.u = s * (u_prime + (u_prime * t) * t + u_prime.cross(t));
+
+        // then the position
+        self.prev_x = self.x;
+        let dxi = SPEED_OF_LIGHT * self.u.x * dt / (dx * self.gamma);
+        assert!(dxi < 1.0);
+        self.x = self.x + dxi;
+        self.y = self.y + v.y * dt;
+        self.z = self.z + v.z * dt;
+
+        // adjust for crossing a cell boundary
+        let floor = self.x.floor();
+        self.cell = if floor < 0.0 {
+            self.cell - 1
+        } else if floor > 0.0 {
+            self.cell + 1
+        } else {
+            self.cell
+        };
+        //self.cell += floor as usize;
+        self.prev_x -= floor;
+        self.x -= floor;
+    }
+
+    #[allow(non_snake_case)]
+    pub fn boris_push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64) {
+        let E = Vec3::new_from_slice(E);
+        let cB = SPEED_OF_LIGHT * Vec3::new_from_slice(B);
+
+        let q = ELECTRON_CHARGE;
+        let M = ELECTRON_MASS;
+        let alpha = q * dt / (2.0 * M * SPEED_OF_LIGHT);
+
+        // half the electric field acceleration:
+        // u_ = u + alpha E
+        let u_minus = self.u + alpha * E;
+
+        // magnetic field rotation:
+        // u' = u_ + t (u_ x cB)
+        let gamma = 1.0 + u_minus.norm_sqr() / (1.0 + (1.0 + u_minus.norm_sqr()).sqrt());
+        let t = alpha / gamma;
+        let u_prime = u_minus + t * u_minus.cross(cB);
+
+        // u+ = u_ + t' (u' x B)
+        let t_prime = 2.0 * t / (1.0 + t.powi(2) * cB.norm_sqr());
+        let u_plus = u_minus + t_prime * u_prime.cross(cB);
+
+        // quantum parameter
+        self.chi = ((gamma * E + u_plus.cross(cB)).norm_sqr() - (E * u_plus).powi(2)).sqrt() / CRITICAL_FIELD;
+
+        if cfg!(feature = "no_radiation_reaction") {
+            self.tau = self.tau - photon_emission::classical_rate(self.chi, gamma) * dt;
+        } else {
+            self.tau = self.tau - photon_emission::rate(self.chi, gamma) * dt;
+        }
+
+        // remaining electric field acceleration
+        // u = u+ + alpha E
+        self.u = u_plus + alpha * E;
+        self.gamma = (1.0 + self.u.norm_sqr()).sqrt();
+
+        // then the position
+        self.prev_x = self.x;
+        let v = SPEED_OF_LIGHT * self.u / self.gamma;
+        let dxi = v.x * dt / dx;
+        assert!(dxi < 1.0);
+        self.x = self.x + dxi;
+        self.y = self.y + v.y * dt;
+        self.z = self.z + v.z * dt;
+
+        // adjust for crossing a cell boundary
+        let floor = self.x.floor();
+        self.cell = if floor < 0.0 {
+            self.cell - 1
+        } else if floor > 0.0 {
+            self.cell + 1
+        } else {
+            self.cell
+        };
+        //self.cell += floor as usize;
+        self.prev_x -= floor;
+        self.x -= floor;
     }
 }
 

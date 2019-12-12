@@ -25,3 +25,4 @@ libc = "0.2"
 
 [features]
 #no_radiation_reaction = [] # disable recoil, use classical emission rate
+#no_beaming = [] # photons emitted parallel to electron momentum

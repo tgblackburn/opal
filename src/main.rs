@@ -72,6 +72,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let photon_energy_min = input.real("qed", "photon_energy_min").ok().map(|j| 1.0e-6 * j / ELEMENTARY_CHARGE); // convert to Option, then map joules to MeV
     let photon_angle_max = input.real("qed", "photon_angle_max").ok();
     let max_formation_length = input.real("qed", "max_formation_length").ok();
+    let disable_qed_after = input.real("qed", "disable_qed_after").ok();
 
     let photon_absorption = input.bool("qed", "photon_absorption")?;
 
@@ -183,7 +184,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             photons.advance(&world, &grid, dt);
 
             if photon_absorption {
-                absorb(&mut electrons, &mut photons, dt, grid.dx());
+                absorb(&mut electrons, &mut photons, dt, grid.dx(), disable_qed_after);
             }
 
             if photon_emission {

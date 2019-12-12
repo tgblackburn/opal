@@ -29,6 +29,7 @@ pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {
     fn create(cell: isize, x: f64, u: &[f64; 3], weight: f64, dx: f64, dt: f64) -> Self;
     fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64);
     fn location(&self) -> (isize, f64, f64);
+    fn transverse_displacement(&self) -> f64;
     fn shift_cell(&mut self, delta: isize);
     fn charge(&self) -> f64;
     fn mass(&self) -> f64;
@@ -248,6 +249,10 @@ impl<T> Population<T> where T: Particle + Send + Sync {
             grid.xmin() + ((c as f64) + x) * grid.dx()
         };
 
+        let radius = |pt: &T| -> f64 {
+            pt.transverse_displacement()
+        };
+
         let energy = |pt: &T| -> f64 {
             pt.energy()
         };
@@ -329,6 +334,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                 .map(|&s| {
                     match s {
                         "x" => Some(Box::new(position) as ParticleOutput<T>),
+                        "r" => Some(Box::new(radius) as ParticleOutput<T>),
                         "energy" => Some(Box::new(energy) as ParticleOutput<T>),
                         "px" => Some(Box::new(px) as ParticleOutput<T>),
                         "py" => Some(Box::new(py) as ParticleOutput<T>),
@@ -348,7 +354,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                 .iter()
                 .map(|&s| {
                     match s {
-                        "x" => Some("m"),
+                        "x" | "r" => Some("m"),
                         "energy" => Some("MeV"),
                         "px" | "py" | "pz" | "p_perp" => Some("MeV/c"),
                         "theta" | "phi" | "longitude" | "latitude" => Some("rad"),
@@ -487,7 +493,7 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
     ph.store.extend_from_slice(&emitted[..]);
 }
 
-pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, dt: f64, dx: f64) {
+pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, dt: f64, dx: f64, max_displacement: Option<f64>) {
     const PHOTON_E_ECRIT_CUTOFF: f64 = 1.0e-8;
 
     if e.store.is_empty() || ph.store.is_empty() {
@@ -518,6 +524,13 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, dt: f64
                 for photon in chunk.iter_mut() {
                     if photon.chi() * ELECTRON_MASS_MEV / photon.energy() < PHOTON_E_ECRIT_CUTOFF {
                         continue;
+                    }
+
+                    // ignore photons that have travelled a given perp distance
+                    if let Some(r_max) = max_displacement {
+                        if photon.transverse_displacement() > r_max {
+                            continue;
+                        }
                     }
 
                     let (cell, _, _) = photon.location();
