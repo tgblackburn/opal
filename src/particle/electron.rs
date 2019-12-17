@@ -240,9 +240,10 @@ impl Electron {
 
     pub fn absorb(&mut self, photon: &Photon) {
         let k = photon.momentum(); // in units of MeV
-        self.u.x += k[0] / ELECTRON_MASS_MEV;
-        self.u.y += k[1] / ELECTRON_MASS_MEV;
-        self.u.z += k[2] / ELECTRON_MASS_MEV;
+        let scale = photon.weight() / self.weight;
+        self.u.x += scale * k[0] / ELECTRON_MASS_MEV;
+        self.u.y += scale * k[1] / ELECTRON_MASS_MEV;
+        self.u.z += scale * k[2] / ELECTRON_MASS_MEV;
         self.gamma = (1.0 + self.u.norm_sqr()).sqrt();
     }
 
