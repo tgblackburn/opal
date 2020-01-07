@@ -66,6 +66,7 @@ impl<'a> Configuration<'a> {
             .var("micro", 1.0e-6)
             .var("milli", 1.0e-3)
             .func3("step", |x, min, max| if x >= min && x < max {1.0} else {0.0})
+            .func3("gauss", |x, mu, sigma| (-(x - mu).powi(2) / (2.0 * sigma.powi(2))).exp())
             .func("critical", |omega| VACUUM_PERMITTIVITY * ELECTRON_MASS * omega.powi(2) / ELEMENTARY_CHARGE.powi(2));
 
         // Read in from 'constants' block

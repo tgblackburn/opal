@@ -20,6 +20,7 @@ pub use self::ion::*;
 pub use self::hgram::*;
 
 // For local use
+use crate::constants::*;
 use crate::grid::Grid;
 //use hgram::*;
 
@@ -28,6 +29,7 @@ pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {
     fn create(cell: isize, x: f64, u: &[f64; 3], weight: f64, dx: f64, dt: f64) -> Self;
     fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64);
     fn location(&self) -> (isize, f64, f64);
+    fn transverse_displacement(&self) -> f64;
     fn shift_cell(&mut self, delta: isize);
     fn charge(&self) -> f64;
     fn mass(&self) -> f64;
@@ -38,6 +40,10 @@ pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {
     fn weight(&self) -> f64;
     fn chi(&self) -> f64;
     fn with_optical_depth(&self, tau: f64) -> Self;
+    fn flag(&mut self);
+    fn unflag(&mut self);
+    fn is_flagged(&self) -> bool;
+    fn normalized_four_momentum(&self) -> [f64; 4];
 
     fn spin_state(&self) -> Option<f64> {
         None
@@ -121,6 +127,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         let dx = grid.dx();
         let max = grid.size() as isize;
         let num = self.store.len();
+        let tag: i32 = self.name.as_bytes().iter().sum::<u8>() as i32;
 
         let nthreads = rayon::current_num_threads();
         // chunk length cannot be zero
@@ -140,6 +147,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                     let (c, x, _) = pt.location();
                     let (E, B) = grid.fields_at(c, x);
                     pt.push(&E, &B, dx, dt);
+                    pt.unflag();
                     let (c, _, _) = pt.location();
                     if c < 0 {
                         gone_left = gone_left + 1;
@@ -172,15 +180,15 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
         if grid.rank() % 2 == 0 {
             if let Some(r) = grid.to_right() {
-                comm.process_at_rank(r).synchronous_send(send_right);
-                let mut tmp = comm.process_at_rank(r).receive_vec::<T>().0;
+                comm.process_at_rank(r).synchronous_send_with_tag(send_right, tag);
+                let mut tmp = comm.process_at_rank(r).receive_vec_with_tag::<T>(tag).0;
                 recv_right.append(&mut tmp);
             }
         } else {
             if let Some(l) = grid.to_left() {
-                let mut tmp = comm.process_at_rank(l).receive_vec::<T>().0;
+                let mut tmp = comm.process_at_rank(l).receive_vec_with_tag::<T>(tag).0;
                 recv_left.append(&mut tmp);
-                comm.process_at_rank(l).synchronous_send(send_left);
+                comm.process_at_rank(l).synchronous_send_with_tag(send_left, tag);
             }
         }
 
@@ -188,15 +196,15 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
         if grid.rank() % 2 == 0 {
             if let Some(l) = grid.to_left() {
-                comm.process_at_rank(l).synchronous_send(send_left);
-                let mut tmp = comm.process_at_rank(l).receive_vec::<T>().0;
+                comm.process_at_rank(l).synchronous_send_with_tag(send_left, tag);
+                let mut tmp = comm.process_at_rank(l).receive_vec_with_tag::<T>(tag).0;
                 recv_left.append(&mut tmp);
             }
         } else {
             if let Some(r) = grid.to_right() {
-                let mut tmp = comm.process_at_rank(r).receive_vec::<T>().0;
+                let mut tmp = comm.process_at_rank(r).receive_vec_with_tag::<T>(tag).0;
                 recv_right.append(&mut tmp);
-                comm.process_at_rank(r).synchronous_send(send_right);
+                comm.process_at_rank(r).synchronous_send_with_tag(send_right, tag);
             }
         }
 
@@ -241,6 +249,10 @@ impl<T> Population<T> where T: Particle + Send + Sync {
             grid.xmin() + ((c as f64) + x) * grid.dx()
         };
 
+        let radius = |pt: &T| -> f64 {
+            pt.transverse_displacement()
+        };
+
         let energy = |pt: &T| -> f64 {
             pt.energy()
         };
@@ -259,6 +271,11 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
         let pz = |pt: &T| -> f64 {
             pt.momentum()[2]
+        };
+
+        let p_perp = |pt: &T| -> f64 {
+            let p = pt.momentum();
+            p[1].hypot(p[2])
         };
 
         let chi = |pt: &T| -> f64 {
@@ -317,10 +334,12 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                 .map(|&s| {
                     match s {
                         "x" => Some(Box::new(position) as ParticleOutput<T>),
+                        "r" => Some(Box::new(radius) as ParticleOutput<T>),
                         "energy" => Some(Box::new(energy) as ParticleOutput<T>),
                         "px" => Some(Box::new(px) as ParticleOutput<T>),
                         "py" => Some(Box::new(py) as ParticleOutput<T>),
                         "pz" => Some(Box::new(pz) as ParticleOutput<T>),
+                        "p_perp" => Some(Box::new(p_perp) as ParticleOutput<T>),
                         "theta" => Some(Box::new(polar_angle) as ParticleOutput<T>),
                         "phi" => Some(Box::new(azimuthal_angle) as ParticleOutput<T>),
                         "longitude" => Some(Box::new(longitude) as ParticleOutput<T>),
@@ -335,9 +354,9 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                 .iter()
                 .map(|&s| {
                     match s {
-                        "x" => Some("m"),
+                        "x" | "r" => Some("m"),
                         "energy" => Some("MeV"),
-                        "px" | "py" | "pz" => Some("MeV/c"),
+                        "px" | "py" | "pz" | "p_perp" => Some("MeV/c"),
                         "theta" | "phi" | "longitude" | "latitude" => Some("rad"),
                         "work" => Some("J"),
                         "chi" => Some("1"),
@@ -347,7 +366,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
             let weight_function = match weight {
                 "energy" => Some(Box::new(|pt: &T| pt.energy() * pt.weight()) as ParticleOutput<T>),
-                "weight" => Some(Box::new(|pt: &T| pt.weight()) as ParticleOutput<T>),
+                "weight" | "auto" => Some(Box::new(|pt: &T| pt.weight()) as ParticleOutput<T>),
                 _ => None,
             };
 
@@ -410,7 +429,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
 // Couple different particle species here:
 
-pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, min_energy: Option<f64>, max_angle: Option<f64>) {
+pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, min_energy: Option<f64>, max_angle: Option<f64>, max_formation_length: Option<f64>) {
     let ne = e.store.len();
     let nthreads = rayon::current_num_threads();
     // chunk length cannot be zero
@@ -433,11 +452,11 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
             }
             let mut v: Vec<Photon> = Vec::new();
             for e in chunk {
-                let photon = e.radiate(&mut rng);
-                if photon.is_none() {
+                let result = e.radiate(&mut rng);
+                if result.is_none() {
                     continue;
                 } else {
-                    let photon = photon.unwrap();
+                    let (photon, formation_length) = result.unwrap();
 
                     let energy_within_bounds = if let Some(min) = min_energy {
                         photon.energy() >= min
@@ -454,7 +473,13 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
                         true
                     };
 
-                    if energy_within_bounds && angle_within_bounds {
+                    let formation_length_ok = if let Some(max) = max_formation_length {
+                        formation_length < max
+                    } else {
+                        true
+                    };
+
+                    if energy_within_bounds && angle_within_bounds && formation_length_ok {
                         v.push(photon);
                     }
                 }
@@ -466,6 +491,140 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
 
     rng.long_jump();
     ph.store.extend_from_slice(&emitted[..]);
+}
+
+pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, dt: f64, dx: f64, max_displacement: Option<f64>) {
+    const PHOTON_E_ECRIT_CUTOFF: f64 = 1.0e-8;
+
+    if e.store.is_empty() || ph.store.is_empty() {
+        return;
+    }
+
+    let nph = ph.store.len();
+    let nthreads = rayon::current_num_threads();
+    let chunk_len = if nph > nthreads {
+        nph / nthreads
+    } else {
+        nph // guarantee this runs
+    };
+
+    // return a Vec of:
+    //  index of the electron that did the absorbing
+    //  and the photon that was absorbed
+    let absorbed: Vec<(usize,Photon)> =
+        ph.store
+        .par_chunks_mut(chunk_len)
+        .map(
+            |chunk: &mut [Photon]| -> Vec<(usize,Photon)> {
+                let mut prev_cell: isize = -1;
+                let mut start: Option<usize> = None;
+                let mut end: Option<usize> = None;
+                let mut absorbed: Vec<(usize,Photon)> = Vec::new();
+
+                for photon in chunk.iter_mut() {
+                    if photon.chi() * ELECTRON_MASS_MEV / photon.energy() < PHOTON_E_ECRIT_CUTOFF {
+                        continue;
+                    }
+
+                    // ignore photons that have travelled a given perp distance
+                    if let Some(r_max) = max_displacement {
+                        if photon.transverse_displacement() > r_max {
+                            continue;
+                        }
+                    }
+
+                    let (cell, _, _) = photon.location();
+                    //println!("photon in cell {}", cell);
+
+                    // find start and end indices of electrons in the same cell
+                    if cell != prev_cell {
+                        //println!("finding electrons in {}, starting from {}", cell, end.unwrap_or(0));
+                        start = e.store.iter()
+                            .skip( end.unwrap_or(0) )
+                            .position(|e| e.location().0 == cell)
+                            .map(|i| i + end.unwrap_or(0));
+
+                        /*
+                        if start.is_some() {
+                            println!("first electron at {}, cell = {:?}", start.unwrap(), e.store[start.unwrap()].location());
+                        } else {
+                            println!("start is none");
+                        }
+                        */
+
+                        end = if start.is_none() {
+                            None
+                        } else {
+                            e.store.iter()
+                                .skip( start.unwrap() )
+                                .position(|e| e.location().0 != cell)
+                                .map(|i| i + start.unwrap() )
+                        };
+
+                        /*
+                        if end.is_some() {
+                            println!("final electron at {}, cell = {:?}", end.unwrap() - 1, e.store[end.unwrap() - 1].location());
+                        } else {
+                            println!("end is none");
+                        }
+                        */
+                    }
+                    
+                    prev_cell = cell;
+
+                    // both start and end must be Some, or there are no electrons
+                    // in the same cell as the present photon
+                    if start.is_none() || end.is_none() {
+                        //println!("No electron in same cell");
+                        continue;
+                    }
+
+                    //println!("testing against electrons {}..{}", start.unwrap(), end.unwrap());
+                    let electrons = &e.store[start.unwrap()..end.unwrap()];
+
+                    for (j, e) in electrons.iter().enumerate() {
+                        if photon.is_absorbed_by(e, dt, dx) {
+                            photon.flag(); // mark photon for deletion
+                            absorbed.push( (j + start.unwrap(), photon.clone()) );
+                            break; // jump to next photon
+                        }
+                    } // loop over electrons in same cell
+                } // loop over all photons
+
+                absorbed
+            })
+        .reduce(|| Vec::<(usize,Photon)>::new(), |a, b| [a,b].concat());
+    
+    if absorbed.len() > 0 {
+        //ph.store.retain(|ph| !ph.is_flagged());
+        //for i in (0..ph.store.len()).rev() {
+        //    if ph.store[i].is_flagged() {
+        //        ph.store.swap_remove(i);
+        //    }
+        //}
+        let mut tmp: Vec<Photon> = Vec::new();
+        std::mem::swap(&mut ph.store, &mut tmp); // ph.store holds empty Vec, can consume tmp
+        let mut split: Vec<Vec<Photon>> = tmp.into_par_iter().chunks(chunk_len).collect();
+        split.par_iter_mut().for_each(|s: &mut Vec<Photon>| {
+            for i in (0..s.len()).rev() {
+                if s[i].is_flagged() {
+                    s.swap_remove(i);
+                }
+            }
+        });
+        ph.store = split.concat();
+    }
+
+    // Each electron can only absorb one photon per timestep
+    //absorbed.dedup_by_key(|(i, _ph)| *i);
+    // handle energy change
+    for (i, photon) in absorbed.iter() {
+        e.store.get_mut(*i).map(|pt| pt.absorb(photon));
+    }
+
+    //if absorbed.len() > 0 {
+    //    println!("Absorbed {} macrophotons, len {} -> {}", absorbed.len(), nph, ph.store.len());
+    //}
 }
 
 

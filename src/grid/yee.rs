@@ -178,7 +178,7 @@ impl Grid for YeeGrid {
         self.advance_B(0.5 * dt);
     }
 
-    fn synchronize(&mut self, world: impl Communicator, laser: &impl Fn(f64, f64) -> f64, t: f64) {
+    fn synchronize(&mut self, world: impl Communicator, laser_y: &impl Fn(f64, f64) -> f64, laser_z: &impl Fn(f64, f64) -> f64, t: f64) {
         // Take first and last 'left_bdy_size + right_bdy size' elements
         let send_left = self.cell.slice(s![0..2*GHOST_SIZE]).to_vec();
         let send_right = self.cell.slice(s![-2*GHOST_SIZE..]).to_vec();
@@ -270,12 +270,12 @@ impl Grid for YeeGrid {
             //let f = &self.laser;
             self.cell.slice_mut(s![0..self.left_bdy_size]).map_inplace(|c| {
                 c.E[0] = 0.0;
-                c.E[1] = laser(t, c.x);
-                c.E[2] = 0.0;
+                c.E[1] = laser_y(t, c.x);
+                c.E[2] = laser_z(t, c.x);
                 c.B[0] = 0.0;
-                c.B[1] = 0.0;
-                c.B[2] = laser(t, c.x + 0.5 * dx) / SPEED_OF_LIGHT;
-            });            
+                c.B[1] = -laser_z(t, c.x + 0.5 * dx) / SPEED_OF_LIGHT;
+                c.B[2] = laser_y(t, c.x + 0.5 * dx) / SPEED_OF_LIGHT;
+            });
         }
 
         if self.right_bdy == Boundary::Absorbing {

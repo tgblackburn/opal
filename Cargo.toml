@@ -21,6 +21,8 @@ meval = "0.2.0"
 #meval = {version = "0.2.0", git = "https://github.com/sjeohp/meval-rs"}
 yaml-rust = "0.4"
 num = "0.2"
+libc = "0.2"
 
 [features]
 #no_radiation_reaction = [] # disable recoil, use classical emission rate
+#no_beaming = [] # photons emitted parallel to electron momentum

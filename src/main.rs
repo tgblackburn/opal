@@ -2,6 +2,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 
 use mpi::traits::*;
+use mpi::Threading;
 use indicatif::FormattedDuration;
 use rand::prelude::*;
 //use rand_chacha::*;
@@ -37,11 +38,12 @@ fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let universe = mpi::initialize().unwrap();
+    let (universe, _) = mpi::initialize_with_threading(Threading::Funneled).unwrap();
     let world = universe.world();
     let id = world.rank();
 
     let mut rng = Xoshiro256StarStar::seed_from_u64(id as u64);
+    qed::photon_absorption::disable_gsl_abort_on_error();
 
     // Prepare configuration file
 
@@ -67,12 +69,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let output_frequency = input.integer("control", "n_outputs")? as usize;
 
     let photon_emission = input.bool("qed", "photon_emission")?;
-    let photon_energy_min = input.real("qed", "photon_energy_min").ok(); // convert to Option
+    let photon_energy_min = input.real("qed", "photon_energy_min").ok().map(|j| 1.0e-6 * j / ELEMENTARY_CHARGE); // convert to Option, then map joules to MeV
     let photon_angle_max = input.real("qed", "photon_angle_max").ok();
+    let max_formation_length = input.real("qed", "max_formation_length").ok();
+    let disable_qed_after = input.real("qed", "disable_qed_after").ok();
+
+    let photon_absorption = input.bool("qed", "photon_absorption")?;
 
     // Grid initialization
 
-    let laser = input.func2("laser", "field", ["t", "x"])?;
+    let laser_y = input.func2("laser", "Ey", ["t", "x"])?;
+    let laser_z = input.func2("laser", "Ez", ["t", "x"])?;
     let mut grid = YeeGrid::new(world, nx, xmin, dx, Boundary::Laser);
 
     // Particle initialization
@@ -114,8 +121,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Population::new_empty()
     };
 
-    // Photons only looked for if 'photon_emission' is on
-    let mut photons: Population<Photon> = if photon_emission {
+    // Photons only looked for if 'photon_emission' or 'photon_absorption' are on
+    let mut photons: Population<Photon> = if photon_emission || photon_absorption {
         let ppc = input.integer("photons", "npc")?;
         let pospec = input.strings("photons", "output")?;
         let mut photons: Population<Photon> = if ppc > 0 {
@@ -138,7 +145,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if current_deposition {
         grid.deposit(electrons.all(), dt);
         grid.deposit(ions.all(), dt);
-        grid.synchronize(world, &laser, 0.0);
+        grid.synchronize(world, &laser_y, &laser_z, 0.0);
         grid.initialize(world);
     }
 
@@ -176,8 +183,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             ions.advance(&world, &grid, dt);
             photons.advance(&world, &grid, dt);
 
+            if photon_absorption {
+                absorb(&mut electrons, &mut photons, dt, grid.dx(), disable_qed_after);
+            }
+
             if photon_emission {
-                emit_radiation(&mut electrons, &mut photons, &mut rng, photon_energy_min, photon_angle_max);
+                emit_radiation(&mut electrons, &mut photons, &mut rng, photon_energy_min, photon_angle_max, max_formation_length);
             }
 
             if current_deposition {
@@ -186,7 +197,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 grid.deposit(ions.all(), dt);
             }
 
-            grid.synchronize(world, &laser, t);
+            grid.synchronize(world, &laser_y, &laser_z, t);
             grid.advance(dt);
             t += dt;
         }
