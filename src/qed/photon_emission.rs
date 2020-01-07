@@ -351,7 +351,7 @@ mod tests {
         let mut results: Vec<(f64, f64)> = Vec::new();
 
         // 4_000_000 for something more stringent
-        for _i in 0..4_000_000 {
+        for _i in 0..100_000 {
             let (omega_mc2, theta, _) = sample(chi, gamma, rng.gen(), rng.gen(), rng.gen());
             results.push((omega_mc2 / gamma, gamma * theta));
         }
