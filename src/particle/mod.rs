@@ -127,7 +127,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         let dx = grid.dx();
         let max = grid.size() as isize;
         let num = self.store.len();
-        let tag: i32 = self.name.as_bytes().iter().sum::<u8>() as i32;
+        let tag: i32 = self.name.as_bytes().iter().map(|&b| b as i32).sum::<i32>();
 
         let nthreads = rayon::current_num_threads();
         // chunk length cannot be zero
@@ -164,6 +164,11 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         // sort by GridCell id
         // pretty expensive...
         self.store.par_sort_unstable_by_key(|pt| pt.location().0);
+
+        // Particles that are going to the right need their cell index adjusting
+        for pt in &mut self.store[num-gone_right..num] {
+            pt.shift_cell(-max);
+        }
 
         // Get slices of lost particles - but don't replace just yet
         let send_left = &self.store[0..gone_left];
@@ -217,10 +222,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         }
         */
 
-        // Need to correct cells!
-        for pt in recv_left.iter_mut() {
-            pt.shift_cell(-max);
-        }
+        // Need to correct cells only for particles received from the right!
         for pt in recv_right.iter_mut() {
             pt.shift_cell(max);
         }

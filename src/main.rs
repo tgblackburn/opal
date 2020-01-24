@@ -67,6 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tend = input.real("control", "end")?;
     let current_deposition = input.bool("control", "current_deposition")?;
     let output_frequency = input.integer("control", "n_outputs")? as usize;
+    let balance = input.bool("control", "balance").unwrap_or(true); // balance by default
 
     let photon_emission = input.bool("qed", "photon_emission")?;
     let photon_energy_min = input.real("qed", "photon_energy_min").ok().map(|j| 1.0e-6 * j / ELEMENTARY_CHARGE); // convert to Option, then map joules to MeV
@@ -80,7 +81,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let laser_y = input.func2("laser", "Ey", ["t", "x"])?;
     let laser_z = input.func2("laser", "Ez", ["t", "x"])?;
-    let mut grid = YeeGrid::new(world, nx, xmin, dx, Boundary::Laser);
+
+    let geometry = if balance {
+        let ne = input.func("electrons", "ne", "x")?;
+        Geometry::balanced(world, nx, xmin, dx, &ne)
+    } else {
+        Geometry::unbalanced(world, nx, dx)
+    };
+
+    let mut grid = YeeGrid::new(world, xmin, dx, Boundary::Laser, geometry);
 
     // Particle initialization
 
@@ -153,7 +162,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let total_steps: usize = ((tend - tstart) / dt) as usize;
     let steps_bt_output = total_steps / output_frequency;
 
-    println! ("Running with on {} nodes with {} threads per node...", grid.ngrids(), rayon::current_num_threads());
+    if id == 0 {
+        println! ("Running with on {} nodes with {} threads per node...", grid.ngrids(), rayon::current_num_threads());
+    }
 
     let runtime = std::time::Instant::now();
 
