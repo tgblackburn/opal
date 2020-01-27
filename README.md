@@ -33,7 +33,7 @@ and optionally
 ## control
 * `dx`: grid step (in metres).
 * `nx`: number of grid cells.
-* `xmin`: position of left-hand boundary.
+* `xmin`: x position of the left-hand boundary.
 * `start`: time at which simulation starts  (in seconds)...
 * `end`: and ends.
 * `current_deposition`: if `true`, charged particles create electromagnetic fields according to Maxwell's equations; if `false`, they will only move in response to externally injected fields.
@@ -42,9 +42,9 @@ and optionally
 
 ## qed
 This determines the extra physics that is included in the simulation.
-* `photon_emission`: if `true`, photons are emitted by electrons according to quantum synchrotron rates.
-* `photon_absorption`: if `true`, photons can be absorbed by electrons. This requires pairwise checking of the absorption cross-section and signficantly increases simulation runtime.
-* `photon_energy_min` (optional, default is `0.0`): specifies an energy (in joules) below which photons are deleted from the simulation on creation. The conversion constants `eV`, `keV` and `MeV` are provided.
+* `photon_emission`: if `true`, photons are emitted by electrons according to the quantum synchrotron rates.
+* `photon_absorption`: if `true`, photons can be absorbed by electrons. This requires pairwise checking of the absorption cross section and signficantly increases simulation runtime.
+* `photon_energy_min` (optional, default is `0.0`): specifies an energy (in joules) below which photons are deleted from the simulation on creation. The conversion constants `eV`, `keV` and `MeV` are provided for convenience.
 
 ## electrons
 At present, opal supports a single electron species. Only `npc` and `output` are actually compulsory, but if `npc` is greater than zero, all other values must be given.
@@ -79,13 +79,15 @@ Both must be given as functions of `t` and `x`; they control the value of the el
 ## constants
 Everywhere an integer or floating-point number is requested in the input file, a named value may be given instead, provided that its value is specified in this section.
 
-For example, `ne: n0 * step(x, 0.0, 1.0e-6)` in the [electrons](#electrons) section would be accepted provided that `n0: 1.0e23` was given. Named constants can themselves be mathematical expressions, but they cannot depend on each other.
+For example, `ne: n0 * step(x, 0.0, 1.0e-6)` in the [electrons](#electrons) section would be accepted provided that `n0: 1.0e23` was given. Named constants can themselves be mathematical expressions, but they cannot depend on each other, or themselves.
 
 ## Maths parser
 The code makes use of [meval](https://crates.io/crates/meval) when parsing the input file. In addition to the functions and constants this crate provides, opal provides:
 * `critical(omega)`: returns the critical density (in units of 1/m^3) for the corresponding angular frequency (given in units of rad/s).
 * `gauss(x,mu,sigma)`: probability density function of the normal distribution, for mean `mu` and standard deviation `sigma`.
 * `step(x,min,max)`: Heaviside theta function, returns 1.0 for min <= x < max and zero otherwise.
+* `nrand`: returns a pseudorandom number, normally distributed with mean 0.0 and standard deviation 1.0.
+* `urand`: returns a pseudorandom number, uniformly distributed between 0.0 and 1.0.
 * the physical constants `me`, `mp`, `c`, `e`: the electron mass, proton mass, speed of light and elementary charge, respectively, all in SI units.
 * the conversion constants `eV`, `keV`, `MeV`, `femto`, `pico`, `nano`, `milli`.
 
@@ -99,4 +101,4 @@ cd opal_directory
 export RAYON_NUM_THREADS=nt
 mpirun -n np ./target/release/opal path/to/input.yaml
 ```
-will run Opal, distributing the domain over `np` MPI tasks, and assigning `nt` theads per task.
+will run Opal, distributing the domain over `np` MPI tasks, and assigning `nt` theads per task. The right balance between the number of tasks and threads is system-dependent.
