@@ -164,7 +164,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let steps_bt_output = total_steps / output_frequency;
 
     if id == 0 {
-        println! ("Running with on {} nodes with {} threads per node...", grid.ngrids(), rayon::current_num_threads());
+        let ntasks = grid.ngrids();
+        let nthreads = rayon::current_num_threads();
+        println! ("Running {} task{} with {} thread{} per task...", ntasks, if ntasks > 1 {"s"} else {""}, nthreads, if nthreads > 1 {"s"} else {""});
     }
 
     let runtime = std::time::Instant::now();
