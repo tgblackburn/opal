@@ -68,7 +68,7 @@ Similarly, opal supports only one ion species at present. Only `npc` is compulso
 * `output`: as for [electrons](#electrons).
 
 ## photons
-If either `photon_emission` or `photon_emission` are enabled, this section must exist. However, if `npc` is zero, only `output` needs to be given. Otherwise, the fields are the same as for the [electrons](#electrons), but `ne` is renamed `nph`.
+If either `photon_emission` or `photon_absorption` are enabled, this section must exist. However, if `npc` is zero, only `output` needs to be given. Otherwise, the fields are the same as for the [electrons](#electrons), but `ne` is renamed `nph`.
 
 ## laser
 * `Ey`
@@ -86,6 +86,8 @@ The code makes use of [meval](https://crates.io/crates/meval) when parsing the i
 * `critical(omega)`: returns the critical density (in units of 1/m^3) for the corresponding angular frequency (given in units of rad/s).
 * `gauss(x,mu,sigma)`: probability density function of the normal distribution, for mean `mu` and standard deviation `sigma`.
 * `step(x,min,max)`: Heaviside theta function, returns 1.0 for min <= x < max and zero otherwise.
+* the physical constants `me`, `mp`, `c`, `e`: the electron mass, proton mass, speed of light and elementary charge, respectively, all in SI units.
+* the conversion constants `eV`, `keV`, `MeV`, `femto`, `pico`, `nano`, `milli`.
 
 # Run
 opal has a hybrid parallelization scheme, using MPI to split the grid into subdomains, and Rayon for each subdomain.
