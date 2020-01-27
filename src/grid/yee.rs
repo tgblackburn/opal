@@ -104,10 +104,11 @@ pub struct YeeGrid {
 }
 
 impl Grid for YeeGrid {
-    fn new(comm: impl Communicator, size: usize, x: f64, dx: f64, left: Boundary) -> YeeGrid {
+    fn new(comm: impl Communicator, geometry: Geometry, left: Boundary) -> Self {
         let id = comm.rank();
         let numtasks = comm.size();
-        let ncells = size / (numtasks as usize);
+        let ncells = geometry.nx[id as usize];
+        let offset = geometry.offset[id as usize];
 
         let (left_bdy, left_bdy_size) = if id == 0 && left == Boundary::Laser {
             (Boundary::Laser, LASER_BDY_SIZE)
@@ -123,7 +124,7 @@ impl Grid for YeeGrid {
 
         let empty_cell = |c| -> Cell {
             Cell {
-                x: x + ((id as f64) * (ncells as f64) + (c as f64) - (left_bdy_size as f64)) * dx,
+                x: geometry.xmin + offset + ((c as f64) - (left_bdy_size as f64)) * geometry.dx,
                 rho: 0.0,
                 j: [0.0; 3],
                 E: [0.0; 3],
@@ -142,7 +143,7 @@ impl Grid for YeeGrid {
             right_bdy_size: right_bdy_size,
             size: ncells,
             //x: x + ((id as f64) * (ncells as f64)) * dx,
-            dx: dx,
+            dx: geometry.dx,
             cell: Array1::from_shape_fn(ncells + (left_bdy_size as usize) + (right_bdy_size as usize), empty_cell),
             //laser: Box::new(laser),
         }
@@ -683,6 +684,10 @@ impl Grid for YeeGrid {
         }
 
         Ok(())
+    }
+
+    fn min_size() -> usize {
+        (2 * GHOST_SIZE) as usize
     }
 }
 
