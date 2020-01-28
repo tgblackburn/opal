@@ -1,7 +1,7 @@
 # opal
 Parallel, relativistic 1d3v PIC code. Written primarily to do some plasma physics in the strong-field QED regime, but also to test Rust as a platform for HPC.
 
-# Build
+## Build
 
 The following need to be installed:
 * [CFITSIO](https://heasarc.gsfc.nasa.gov/fitsio/)
@@ -17,7 +17,7 @@ cargo build --release [-j NUM_THREADS]
 ```
 where `NUM_THREADS` is the number of separate threads that Cargo is allowed to spawn.
 
-# Specify problem
+## Specify problem
 opal takes as its single argument the path to a YAML file describing the input configuration. Output is automatically written to the same directory as this file. The inputs for some test problems can be found in `examples/`. Starting from scratch, the input needs to contain the following sections:
 
 * control
@@ -30,7 +30,7 @@ and optionally
 * photons (if photon emission or absorption are enabled)
 * constants
 
-## control
+### control
 * `dx`: grid step (in metres).
 * `nx`: number of grid cells.
 * `xmin`: x position of the left-hand boundary.
@@ -40,13 +40,15 @@ and optionally
 * `output_frequency`: produce this many outputs, at regular intervals.
 * `balance` (optional, default is `true`): partition the domain in such a way that all MPI tasks get approximately the same number of particles. This is done once only, at the start of the simulation.
 
-## qed
+### qed
 This determines the extra physics that is included in the simulation.
 * `photon_emission`: if `true`, photons are emitted by electrons according to the quantum synchrotron rates.
 * `photon_absorption`: if `true`, photons can be absorbed by electrons. This requires pairwise checking of the absorption cross section and signficantly increases simulation runtime.
-* `photon_energy_min` (optional, default is `0.0`): specifies an energy (in joules) below which photons are deleted from the simulation on creation. The conversion constants `eV`, `keV` and `MeV` are provided for convenience.
+* `photon_energy_min` (optional): specifies an energy (in joules) below which photons are deleted from the simulation on creation. The conversion constants `eV`, `keV` and `MeV` are provided for convenience.
+* `photon_angle_max` (optional): specifies a maximum angle to the positive x-axis (in radians) - photons emitted at larger angles are deleted on creation.
+* `max_formation_length` (optional): if provided, opal estimates the formation length for each photon that is emitted, using the method given in [this paper][1]. If the estimated formation length is smaller than the value specified (in metres), the photon is discarded.
 
-## electrons
+### electrons
 At present, opal supports a single electron species. Only `npc` and `output` are actually compulsory, but if `npc` is greater than zero, all other values must be given.
 * `npc`: create this number of macroelectrons per grid cell. Larger numbers means better statistics but proportionally longer runtimes.
 * `ne`: the initial number density as a function of `x`; the code recognizes most mathematical functions and will look for unknown values in the [constants](#constants) block. The maths parser is explained [here](#maths-parser).
@@ -55,7 +57,7 @@ At present, opal supports a single electron species. Only `npc` and `output` are
 * `uz`
 * `output`: list of specifiers, each of which should correspond to a distribution function. For example, `x:px` requests the distribution of the x coordinate and the corresponding momentum component. Each separate output is written to its own FITS file.
 
-## ions
+### ions
 Similarly, opal supports only one ion species at present. Only `npc` is compulsory, but if it is greater than zero, all other values must be given.
 * `npc`: as for [electrons](#electrons).
 * `name`: how this ion species should be identified in output.
@@ -67,21 +69,21 @@ Similarly, opal supports only one ion species at present. Only `npc` is compulso
 * `uz`
 * `output`: as for [electrons](#electrons).
 
-## photons
+### photons
 If either `photon_emission` or `photon_absorption` are enabled, this section must exist. However, if `npc` is zero, only `output` needs to be given. Otherwise, the fields are the same as for the [electrons](#electrons), but `ne` is renamed `nph`.
 
-## laser
+### laser
 * `Ey`
 * `Ez`
 
 Both must be given as functions of `t` and `x`; they control the value of the electric field at the left-hand boundary of the simulation domain.
 
-## constants
+### constants
 Everywhere an integer or floating-point number is requested in the input file, a named value may be given instead, provided that its value is specified in this section.
 
 For example, `ne: n0 * step(x, 0.0, 1.0e-6)` in the [electrons](#electrons) section would be accepted provided that `n0: 1.0e23` was given. Named constants can themselves be mathematical expressions, but they cannot depend on each other, or themselves.
 
-## Maths parser
+### Maths parser
 The code makes use of [meval](https://crates.io/crates/meval) when parsing the input file. In addition to the functions and constants this crate provides, opal provides:
 * `critical(omega)`: returns the critical density (in units of 1/m^3) for the corresponding angular frequency (given in units of rad/s).
 * `gauss(x,mu,sigma)`: probability density function of the normal distribution, for mean `mu` and standard deviation `sigma`.
@@ -91,7 +93,7 @@ The code makes use of [meval](https://crates.io/crates/meval) when parsing the i
 * the physical constants `me`, `mp`, `c`, `e`: the electron mass, proton mass, speed of light and elementary charge, respectively, all in SI units.
 * the conversion constants `eV`, `keV`, `MeV`, `femto`, `pico`, `nano`, `milli`.
 
-# Run
+## Run
 opal has a hybrid parallelization scheme, using MPI to split the grid into subdomains, and Rayon for each subdomain.
 
 Assuming Opal has been downloaded to `opal_directory` and already built,
@@ -102,3 +104,5 @@ export RAYON_NUM_THREADS=nt
 mpirun -n np ./target/release/opal path/to/input.yaml
 ```
 will run Opal, distributing the domain over `np` MPI tasks, and assigning `nt` theads per task. The right balance between the number of tasks and threads is system-dependent.
+
+[1]: https://arxiv.org/abs/1904.07745 "Radiation beaming in the quantum regime (arXiv:1904.07745)"
