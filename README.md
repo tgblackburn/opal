@@ -45,8 +45,8 @@ This determines the extra physics that is included in the simulation.
 * `photon_emission`: if `true`, photons are emitted by electrons according to the quantum synchrotron rates.
 * `photon_absorption`: if `true`, photons can be absorbed by electrons. This requires pairwise checking of the absorption cross section and signficantly increases simulation runtime.
 * `photon_energy_min` (optional): specifies an energy (in joules) below which photons are deleted from the simulation on creation. The conversion constants `eV`, `keV` and `MeV` are provided for convenience.
-* `photon_angle_max` (optional): specifies a maximum angle to the positive x-axis (in radians) - photons emitted at larger angles are deleted on creation.
-* `max_formation_length` (optional): if provided, opal estimates the formation length for each photon that is emitted, using the method given in [this paper][1]. If the estimated formation length is smaller than the value specified (in metres), the photon is discarded.
+* `photon_angle_max` (optional): specifies a maximum angle to the *negative* x-axis (in radians) - photons emitted at larger angles are deleted on creation.
+* `max_formation_length` (optional): if provided, opal estimates the formation length for each photon that is emitted, using the method given in [this paper][1]. If the estimated formation length is larger than the value specified (in metres), the photon is discarded.
 
 ### electrons
 At present, opal supports a single electron species. Only `npc` and `output` are actually compulsory, but if `npc` is greater than zero, all other values must be given.
