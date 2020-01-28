@@ -597,12 +597,14 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64,
             })
         .reduce(|| Vec::<(usize,Photon)>::new(), |a, b| [a,b].concat());
 
-    if absorbed.len() > 0 {
-        for (i, photon) in absorbed.iter() {
-            let electron = &e.store[*i];
-            let k = photon.normalized_four_momentum();
-            let p = electron.normalized_four_momentum();
-            eprintln!("{} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e}", photon.location().0, t, photon.chi(), k[0], k[1], k[2], k[3], electron.chi(), p[0], p[1], p[2], p[3]);
+    if cfg!(feature = "extra_absorption_output") {
+        if absorbed.len() > 0 {
+            for (i, photon) in absorbed.iter() {
+                let electron = &e.store[*i];
+                let k = photon.normalized_four_momentum();
+                let p = electron.normalized_four_momentum();
+                eprintln!("{} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e}", photon.location().0, t, photon.chi(), k[0], k[1], k[2], k[3], electron.chi(), p[0], p[1], p[2], p[3]);
+            }
         }
     }
     
