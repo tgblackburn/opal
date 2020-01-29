@@ -130,10 +130,15 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         use mpi::collective::SystemOperation;
 
         let local = self.store.par_iter().map(|pt| pt.total_kinetic_energy()).sum::<f64>();
-        let mut global = 0.0;
 
-        comm.process_at_rank(0).reduce_into_root(&local, &mut global, SystemOperation::sum());
-        global
+        if comm.rank() == 0 {
+            let mut global = 0.0;
+            comm.process_at_rank(0).reduce_into_root(&local, &mut global, SystemOperation::sum());
+            global
+        } else {
+            comm.process_at_rank(0).reduce_into(&local, SystemOperation::sum());
+            local
+        }
     }
 
     #[allow(non_snake_case)]

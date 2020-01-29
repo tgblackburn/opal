@@ -703,13 +703,15 @@ impl Grid for YeeGrid {
             );
 
         let local = 0.5 * (VACUUM_PERMITTIVITY * sum_e2 + sum_b2 / VACUUM_PERMEABILITY) * self.dx;
-        let mut global = 0.0;
 
-        world
-            .process_at_rank(0)
-            .reduce_into_root(&local, &mut global, SystemOperation::sum());
-
-        global
+        if self.id == 0 {
+            let mut global = 0.0;
+            world.process_at_rank(0).reduce_into_root(&local, &mut global, SystemOperation::sum());
+            global
+        } else {
+            world.process_at_rank(0).reduce_into(&local, SystemOperation::sum());
+            local
+        }
     }
 }
 
