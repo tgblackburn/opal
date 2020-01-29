@@ -1,11 +1,10 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::fmt;
 
 use mpi::traits::*;
 use mpi::Threading;
-use indicatif::FormattedDuration;
 use rand::prelude::*;
-//use rand_chacha::*;
 use rand_xoshiro::*;
 
 mod constants;
@@ -35,6 +34,54 @@ fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::
     let rt = (rt.as_secs() as f64) + (rt.subsec_nanos() as f64) * 1.0e-9;
     let ettc = rt * ((total - current) as f64) / (current as f64);
     std::time::Duration::from_secs(ettc as u64)
+}
+
+struct PrettyDuration {
+    pub duration: std::time::Duration,
+}
+
+impl From<std::time::Duration> for PrettyDuration {
+    fn from(duration: std::time::Duration) -> PrettyDuration {
+        PrettyDuration {duration: duration}
+    }
+}
+
+impl fmt::Display for PrettyDuration {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut t = self.duration.as_secs();
+        let s = t % 60;
+        t /= 60;
+        let min = t % 60;
+        t /= 60;
+        let hr = t % 24;
+        let d = t / 24;
+        if d > 0 {
+            write!(f, "{}d {:02}:{:02}:{:02}", d, hr, min, s)
+        } else {
+            write!(f, "{:02}:{:02}:{:02}", hr, min, s)
+        }
+    }
+}
+
+fn write_energies(world: &impl Communicator, dir: &str, index: usize, grid: &impl Grid, electrons: &Population<Electron>, ions: &Population<Ion>, photons: &Population<Photon>) -> std::io::Result<()> {
+    use std::fs::File;
+    use std::io::Write;
+
+    let field_energy = grid.em_field_energy(world);
+    let electron_energy = electrons.total_kinetic_energy(world);
+    let ion_energy = ions.total_kinetic_energy(world);
+    let photon_energy = photons.total_kinetic_energy(world);
+
+    if grid.rank() == 0 {
+        let filename = format!("{}/{}_energy.dat", dir, index);
+        let mut file = File::create(filename)?;
+        writeln! (file, "em_field {:.6e}", field_energy)?;
+        writeln! (file, "electrons {:.6e}", electron_energy)?;
+        writeln! (file, "ions {:.6e}", ion_energy)?;
+        writeln! (file, "photons {:.6e}", photon_energy)?;
+    }
+
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -176,13 +223,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         electrons.write_data(&world, &grid, output_dir, i)?;
         ions.write_data(&world, &grid, output_dir, i)?;
         photons.write_data(&world, &grid, output_dir, i)?;
+        write_energies(&world, output_dir, i, &grid, &electrons, &ions, &photons)?;
 
         if grid.rank() == 0 {
             if i > 0 {
                 println!(
                     "Output {: >4} at t = {: >8.2} fs, RT = {}, ETTC = {}...",
-                    i, 1.0e15 * t, FormattedDuration(runtime.elapsed()),
-                    FormattedDuration(ettc(runtime, i * steps_bt_output, output_frequency * steps_bt_output))
+                    i, 1.0e15 * t, PrettyDuration::from(runtime.elapsed()),
+                    PrettyDuration::from(ettc(runtime, i * steps_bt_output, output_frequency * steps_bt_output))
                 );
             } else {
                 println!("Output {: >4} at t = {: >8.2} fs...", i, 1.0e15 * t);
@@ -223,11 +271,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     electrons.write_data(&world, &grid, output_dir, output_frequency)?;
     ions.write_data(&world, &grid, output_dir, output_frequency)?;
     photons.write_data(&world, &grid, output_dir, output_frequency)?;
+    write_energies(&world, output_dir, output_frequency, &grid, &electrons, &ions, &photons)?;
 
     if grid.rank() == 0 {
         println!(
             "Output {: >4} at t = {: >8.2} fs, RT = {}",
-            output_frequency, 1.0e15 * t, FormattedDuration(runtime.elapsed())
+            output_frequency, 1.0e15 * t, PrettyDuration::from(runtime.elapsed())
         );
     }
 

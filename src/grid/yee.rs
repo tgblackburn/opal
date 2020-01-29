@@ -689,6 +689,28 @@ impl Grid for YeeGrid {
     fn min_size() -> usize {
         (2 * GHOST_SIZE) as usize
     }
+
+    fn em_field_energy(&self, world: &impl Communicator) -> f64 {
+        use mpi::collective::SystemOperation;
+
+        let (sum_e2, sum_b2) = self.cell
+            .slice(s![self.left_bdy_size..-self.right_bdy_size])
+            .fold((0.0, 0.0), |(e2, b2), c|
+                (
+                    e2 + c.E[0].powi(2) + c.E[1].powi(2) + c.E[2].powi(2),
+                    b2 + c.B[0].powi(2) + c.B[1].powi(2) + c.B[2].powi(2),
+                )
+            );
+
+        let local = 0.5 * (VACUUM_PERMITTIVITY * sum_e2 + sum_b2 / VACUUM_PERMEABILITY) * self.dx;
+        let mut global = 0.0;
+
+        world
+            .process_at_rank(0)
+            .reduce_into_root(&local, &mut global, SystemOperation::sum());
+
+        global
+    }
 }
 
 impl YeeGrid {

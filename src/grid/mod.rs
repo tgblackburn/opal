@@ -33,6 +33,7 @@ pub trait Grid {
     fn initialize(&mut self, world: impl Communicator);
     fn write_data(&self, world: impl Communicator, dir: &str, index: usize) -> std::io::Result<()>;
     fn min_size() -> usize;
+    fn em_field_energy(&self, world: &impl Communicator) -> f64;
 }
 
 pub struct Geometry {

@@ -51,6 +51,10 @@ pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {
     fn spin_state_name(&self) -> Option<&'static str> {
         None
     }
+
+    /// Returns the product of the particle weight and
+    /// its kinetic energy, in joules.
+    fn total_kinetic_energy(&self) -> f64;
 }
 
 pub struct Population<T: Particle> {
@@ -119,6 +123,17 @@ impl<T> Population<T> where T: Particle + Send + Sync {
     pub fn with_name(&mut self, name: &str) -> &mut Self {
         self.name = name.to_owned();
         self
+    }
+
+    #[allow(non_snake_case)]
+    pub fn total_kinetic_energy(&self, comm: &impl Communicator) -> f64 {
+        use mpi::collective::SystemOperation;
+
+        let local = self.store.par_iter().map(|pt| pt.total_kinetic_energy()).sum::<f64>();
+        let mut global = 0.0;
+
+        comm.process_at_rank(0).reduce_into_root(&local, &mut global, SystemOperation::sum());
+        global
     }
 
     #[allow(non_snake_case)]

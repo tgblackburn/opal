@@ -119,6 +119,12 @@ impl Particle for Electron {
         self.gamma * ELECTRON_MASS_MEV
     }
 
+    fn total_kinetic_energy(&self) -> f64 {
+        // gamma - 1 = (p/m)^2 / (gamma + 1)
+        let to_joules = 1.0e6 * ELECTRON_MASS_MEV * ELEMENTARY_CHARGE;
+        self.weight * self.u.norm_sqr() * to_joules / (self.gamma + 1.0)
+    }
+
     fn work(&self) -> f64 {
         self.work // in joules
     }

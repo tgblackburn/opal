@@ -197,6 +197,10 @@ impl Particle for Photon {
         self.k.norm_sqr().sqrt() * ELECTRON_MASS_MEV
     }
 
+    fn total_kinetic_energy(&self) -> f64 {
+        self.weight * self.energy() * 1.0e6 * ELEMENTARY_CHARGE
+    }
+
     fn weight(&self) -> f64 {
         self.weight
     }
