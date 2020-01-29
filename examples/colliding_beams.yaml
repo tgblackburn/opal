@@ -1,0 +1,46 @@
+---
+control:
+ dx: 0.01*micro
+ nx: 4000
+ xmin: -15*micro
+ start: -24.0e-6/c
+ end: 6.0e-6/c
+ current_deposition: false
+ n_outputs: 5
+
+qed:
+ photon_emission: true
+ photon_absorption: false
+ photon_angle_max: 50 * milli
+
+electrons:
+ npc: 100
+ ne: S * a0 * critical(omega) * step(x,xmin,xmax)
+ ux: -1000.0 * (1.0 + 0.01 * nrand)
+ uy: 0.0
+ uz: 0.0
+ output: [x, chi, x:chi, energy, x:energy]
+
+ions:
+ npc: 0
+
+photons:
+ npc: 0
+ output: [x, energy, energy:(log;energy), longitude:latitude, longitude:latitude:(energy)]
+
+laser:
+ Ey: >
+  (a0*m*c*omega/e)
+  *sin(omega*(t-x/c))
+  *exp(-ln(2.0)*(omega*(t-x/c))^2/(2.0*pi^2*ncycles^2))
+ Ez: 0.0
+
+constants:
+ S: 1.0e-6
+ a0: 20.0
+ omega: 2*pi*c/0.8e-6
+ ncycles: 4.0
+ xmin: (20 - 2.5) * micro
+ xmax: (20 + 2.5) * micro
+
+
