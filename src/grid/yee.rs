@@ -280,7 +280,7 @@ impl Grid for YeeGrid {
         }
 
         if self.right_bdy == Boundary::Absorbing {
-            let (xmin, xmax) = (self.cell[[self.size]].x, self.cell[[self.size + (self.right_bdy_size as usize) - 1]].x);
+            let (xmin, xmax) = (self.cell[[self.size + (self.left_bdy_size as usize)]].x, self.cell[[self.size + (self.left_bdy_size as usize) + (self.right_bdy_size as usize) - 1]].x);
             let sigma_max = 10.0 / (self.right_bdy_size as f64);
             self.cell.slice_mut(s![-self.right_bdy_size+1..]).map_inplace(|c| {
                 let sigma = sigma_max * (c.x - xmin) / (xmax - xmin);
@@ -292,12 +292,8 @@ impl Grid for YeeGrid {
                 c.B[2] = (1.0 - sigma) * c.B[2];
             });
             self.cell.slice_mut(s![-2..]).map_inplace(|c| {
-                c.E[0] = 0.0;
-                c.E[1] = 0.0;
-                c.E[2] = 0.0;
-                c.B[0] = 0.0;
-                c.B[1] = 0.0;
-                c.B[2] = 0.0;
+                c.E = [0.0; 3];
+                c.B = [0.0; 3];
             });
         }
     }
@@ -719,8 +715,9 @@ impl YeeGrid {
     /// Interpolate all grid quantities to the cell left boundary,
     /// having stripped away ghost cells.
     fn interpolate(&self) -> Vec<Cell> {
+        let end = -self.right_bdy_size;//if self.right_bdy == Boundary::Absorbing {-1} else {-self.right_bdy_size};
         let v: Vec<Cell> = self.cell
-            .slice(s![self.left_bdy_size-1..-self.right_bdy_size])
+            .slice(s![self.left_bdy_size-1..end])
             .to_vec();
 
         let intrp: Vec<Cell> = v.windows(2)

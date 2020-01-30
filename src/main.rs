@@ -199,7 +199,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Initial conditions
 
-    if current_deposition {
+    if false { // current_deposition {
         grid.deposit(electrons.all(), dt);
         grid.deposit(ions.all(), dt);
         grid.synchronize(world, &laser_y, &laser_z, 0.0);
@@ -213,7 +213,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     if id == 0 {
         let ntasks = grid.ngrids();
         let nthreads = rayon::current_num_threads();
-        println! ("Running {} task{} with {} thread{} per task...", ntasks, if ntasks > 1 {"s"} else {""}, nthreads, if nthreads > 1 {"s"} else {""});
+        println!("Running {} task{} with {} thread{} per task...", ntasks, if ntasks > 1 {"s"} else {""}, nthreads, if nthreads > 1 {"s"} else {""});
+        #[cfg(feature = "extra_absorption_output")] {
+            println!("[writing extra absorption data to stderr]");
+        }
+        #[cfg(feature = "no_beaming")] {
+            println!("[neglecting angular component of photon spectrum]");
+        }
+        #[cfg(feature = "no_radiation_reaction")] {
+            println!("[radiation reaction disabled, using classical emission rates]");
+        }
     }
 
     let runtime = std::time::Instant::now();
@@ -250,7 +259,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
 
             if photon_emission {
-                emit_radiation(&mut electrons, &mut photons, &mut rng, photon_energy_min, photon_angle_max, max_formation_length);
+                emit_radiation(&mut electrons, &mut photons, &mut rng, t, photon_energy_min, photon_angle_max, max_formation_length);
             }
 
             if current_deposition {

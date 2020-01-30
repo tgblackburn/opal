@@ -451,7 +451,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
 // Couple different particle species here:
 
-pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, min_energy: Option<f64>, max_angle: Option<f64>, max_formation_length: Option<f64>) {
+pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, t: f64, min_energy: Option<f64>, max_angle: Option<f64>, max_formation_length: Option<f64>) {
     let ne = e.store.len();
     let nthreads = rayon::current_num_threads();
     // chunk length cannot be zero
@@ -474,7 +474,7 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
             }
             let mut v: Vec<Photon> = Vec::new();
             for e in chunk {
-                let result = e.radiate(&mut rng);
+                let result = e.radiate(&mut rng, t);
                 if result.is_none() {
                     continue;
                 } else {
@@ -617,13 +617,13 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64,
             })
         .reduce(|| Vec::<(usize,Photon)>::new(), |a, b| [a,b].concat());
 
-    if cfg!(feature = "extra_absorption_output") {
+    #[cfg(feature = "extra_absorption_output")] {
         if absorbed.len() > 0 {
             for (i, photon) in absorbed.iter() {
                 let electron = &e.store[*i];
                 let k = photon.normalized_four_momentum();
                 let p = electron.normalized_four_momentum();
-                eprintln!("{} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e}", photon.location().0, t, photon.chi(), k[0], k[1], k[2], k[3], electron.chi(), p[0], p[1], p[2], p[3]);
+                eprintln!("{} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e}", photon.location().0, t, photon.birth_time(), photon.chi(), k[0], k[1], k[2], k[3], electron.chi(), p[0], p[1], p[2], p[3]);
             }
         }
     }

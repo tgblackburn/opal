@@ -51,6 +51,29 @@ impl<'a> Configuration<'a> {
 
     pub fn with_context(&mut self, section: &str) -> &mut Self {
         // Default constants and plasma-related functions
+
+        let gauss_pulse_re = |args: &[f64]| -> f64 {
+            let t = args[0];
+            let x = args[1];
+            let omega = args[2];
+            let sigma = args[3];
+            let phi = omega * (t - x/SPEED_OF_LIGHT);
+            let carrier = phi.sin() + phi * phi.cos() / sigma.powi(2);
+            let envelope = (-phi.powi(2) / (2.0 * sigma.powi(2))).exp();
+            carrier * envelope
+        };
+
+        let gauss_pulse_im = |args: &[f64]| -> f64 {
+            let t = args[0];
+            let x = args[1];
+            let omega = args[2];
+            let sigma = args[3];
+            let phi = omega * (t - x/SPEED_OF_LIGHT);
+            let carrier = phi.cos() - phi * phi.sin() / sigma.powi(2);
+            let envelope = (-phi.powi(2) / (2.0 * sigma.powi(2))).exp();
+            carrier * envelope
+        };
+
         self.ctx
             .var("m", ELECTRON_MASS)
             .var("me", ELECTRON_MASS)
@@ -67,7 +90,9 @@ impl<'a> Configuration<'a> {
             .var("milli", 1.0e-3)
             .func3("step", |x, min, max| if x >= min && x < max {1.0} else {0.0})
             .func3("gauss", |x, mu, sigma| (-(x - mu).powi(2) / (2.0 * sigma.powi(2))).exp())
-            .func("critical", |omega| VACUUM_PERMITTIVITY * ELECTRON_MASS * omega.powi(2) / ELEMENTARY_CHARGE.powi(2));
+            .func("critical", |omega| VACUUM_PERMITTIVITY * ELECTRON_MASS * omega.powi(2) / ELEMENTARY_CHARGE.powi(2))
+            .funcn("gauss_pulse_re", gauss_pulse_re, 4)
+            .funcn("gauss_pulse_im", gauss_pulse_im, 4);
 
         // Read in from 'constants' block
         let tmp = self.ctx.clone(); // a constant cannot depend on other constants yet...

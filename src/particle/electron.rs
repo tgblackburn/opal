@@ -200,7 +200,7 @@ impl Electron {
         self.work
     }
 
-    pub fn radiate<R: Rng>(&mut self, rng: &mut R) -> Option<(Photon, f64)> {
+    pub fn radiate<R: Rng>(&mut self, rng: &mut R, t: f64) -> Option<(Photon, f64)> {
         if self.tau < 0.0 {
             // reset optical depth against emission
             self.tau = rng.sample(Exp1);
@@ -236,7 +236,8 @@ impl Electron {
             // construct photon
             let u = [u.x, u.y, u.z];
             let photon = Photon::create(self.cell, self.x, &u, self.weight, 0.0, 0.0)
-                .with_optical_depth(rng.sample(Exp1));
+                .with_optical_depth(rng.sample(Exp1))
+                .at_time(t);
 
             Some((photon, formation_length))
         } else {

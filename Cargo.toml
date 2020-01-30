@@ -21,6 +21,7 @@ num = "0.2"
 libc = "0.2"
 
 [features]
-#no_radiation_reaction = [] # disable recoil, use classical emission rate
-#no_beaming = [] # photons emitted parallel to electron momentum
+default = []
+no_radiation_reaction = [] # disable recoil, use classical emission rate
+no_beaming = [] # photons emitted parallel to electron momentum
 extra_absorption_output = [] # write data about absorbed photons to stderr
