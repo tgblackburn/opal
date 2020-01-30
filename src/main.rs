@@ -255,7 +255,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             photons.advance(&world, &grid, dt);
 
             if photon_absorption {
-                absorb(&mut electrons, &mut photons, t, dt, grid.dx(), disable_qed_after);
+                absorb(&mut electrons, &mut photons, t, dt, grid.xmin(),grid.dx(), disable_qed_after);
             }
 
             if photon_emission {

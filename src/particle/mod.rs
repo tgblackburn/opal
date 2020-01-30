@@ -515,7 +515,7 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
     ph.store.extend_from_slice(&emitted[..]);
 }
 
-pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64, dt: f64, dx: f64, max_displacement: Option<f64>) {
+pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64, dt: f64, xmin: f64, dx: f64, max_displacement: Option<f64>) {
     const PHOTON_E_ECRIT_CUTOFF: f64 = 1.0e-8;
 
     if e.store.is_empty() || ph.store.is_empty() {
@@ -623,7 +623,8 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64,
                 let electron = &e.store[*i];
                 let k = photon.normalized_four_momentum();
                 let p = electron.normalized_four_momentum();
-                eprintln!("{} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e}", photon.location().0, t, photon.birth_time(), photon.chi(), k[0], k[1], k[2], k[3], electron.chi(), p[0], p[1], p[2], p[3]);
+                let (c, xi, _) = photon.location();
+                eprintln!("{:.6e} {:.6e} {:.6e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e}", xmin + dx * ((c as f64) + xi), t, photon.birth_time(), photon.chi(), k[0], k[1], k[2], k[3], electron.chi(), p[0], p[1], p[2], p[3]);
             }
         }
     }
