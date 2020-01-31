@@ -154,7 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Population::new_empty()
     };
 
-    electrons.with_output(eospec).with_name("electrons");
+    electrons.with_output(eospec).with_name("electron");
 
     let ipc = input.integer("ions", "npc")?;
 
@@ -191,7 +191,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else {
             Population::new_empty()
         };
-        photons.with_output(pospec).with_name("photons");
+        photons.with_output(pospec).with_name("photon");
         photons
     } else {
         Population::new_empty()

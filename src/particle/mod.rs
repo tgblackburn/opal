@@ -515,6 +515,7 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
     ph.store.extend_from_slice(&emitted[..]);
 }
 
+#[allow(unused)]
 pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64, dt: f64, xmin: f64, dx: f64, max_displacement: Option<f64>) {
     const PHOTON_E_ECRIT_CUTOFF: f64 = 1.0e-8;
 
