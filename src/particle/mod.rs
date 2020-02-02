@@ -518,6 +518,7 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
 #[allow(unused)]
 pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64, dt: f64, xmin: f64, dx: f64, max_displacement: Option<f64>) {
     const PHOTON_E_ECRIT_CUTOFF: f64 = 1.0e-8;
+    const PHOTON_ESCAPE_TIME: f64 = 1.0e-15;
 
     if e.store.is_empty() || ph.store.is_empty() {
         return;
@@ -546,6 +547,10 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64,
 
                 for photon in chunk.iter_mut() {
                     if photon.chi() * ELECTRON_MASS_MEV / photon.energy() < PHOTON_E_ECRIT_CUTOFF {
+                        continue;
+                    }
+
+                    if t - photon.birth_time() > PHOTON_ESCAPE_TIME {
                         continue;
                     }
 
