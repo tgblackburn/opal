@@ -121,6 +121,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let photon_angle_max = input.real("qed", "photon_angle_max").ok();
     let max_formation_length = input.real("qed", "max_formation_length").ok();
     let disable_qed_after = input.real("qed", "disable_qed_after").ok();
+    let disable_absorption_after = input.real("qed", "disable_absorption_after").ok();
 
     let photon_absorption = input.bool("qed", "photon_absorption")?;
 
@@ -255,7 +256,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             photons.advance(&world, &grid, dt);
 
             if photon_absorption {
-                absorb(&mut electrons, &mut photons, t, dt, grid.xmin(),grid.dx(), disable_qed_after);
+                absorb(&mut electrons, &mut photons, t, dt, grid.xmin(), grid.dx(), disable_qed_after, disable_absorption_after);
             }
 
             if photon_emission {

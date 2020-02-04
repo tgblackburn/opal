@@ -516,7 +516,7 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
 }
 
 #[allow(unused)]
-pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64, dt: f64, xmin: f64, dx: f64, max_displacement: Option<f64>) {
+pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64, dt: f64, xmin: f64, dx: f64, max_displacement: Option<f64>, stop_time: Option<f64>) {
     const PHOTON_E_ECRIT_CUTOFF: f64 = 1.0e-8;
     const PHOTON_ESCAPE_TIME: f64 = 1.0e-15;
 
@@ -550,8 +550,10 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64,
                         continue;
                     }
 
-                    if t - photon.birth_time() > PHOTON_ESCAPE_TIME {
-                        continue;
+                    if let Some(t_max) = stop_time {
+                        if t - photon.birth_time() > t_max {
+                            continue;
+                        }
                     }
 
                     // ignore photons that have travelled a given perp distance
