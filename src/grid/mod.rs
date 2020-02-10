@@ -4,6 +4,17 @@ use crate::particle::Particle;
 mod yee;
 pub use self::yee::*;
 
+/// The left- and right-hand boundaries of the global simulation
+/// domain, i.e. the boundaries of the leftmost and rightmost
+/// subdomains, are where boundary conditions for the
+/// electromagnetic field must be loaded.
+/// 
+/// - `Internal`: periodic boundary conditions, fields and
+/// particles wrap around the grid.
+/// - `Laser`: propagating electromagnetic fields are injected,
+/// particles crossing the boundary are deleted.
+/// - `Absorbing`: electromagnetic waves crossing the boundary
+/// are strongly damped, particles are deleted.
 #[derive(PartialEq)]
 pub enum Boundary {
     Internal,
@@ -11,39 +22,100 @@ pub enum Boundary {
     Absorbing,
 }
 
-#[allow(non_snake_case)]
-pub trait Grid {
-    // laser has to be Sync so that Grid can be shared among threads for particle advance
-    fn new(comm: impl Communicator, geometry: Geometry, left: Boundary) -> Self;
-    fn rank(&self) -> i32;
-    fn ngrids(&self) -> i32;
-    fn to_left(&self) -> Option<i32>;
-    fn to_right(&self) -> Option<i32>;
-    fn synchronize(&mut self, comm: impl Communicator, laser_y: &impl Fn(f64, f64) -> f64, laser_z: &impl Fn(f64, f64) -> f64, t: f64);
-    fn advance(&mut self, dt: f64);
-    fn fields_at(&self, c: isize, x: f64) -> ([f64; 3], [f64; 3]);
-    fn xmin(&self) -> f64;
-    fn dx(&self) -> f64;
-    fn size(&self) -> usize;
-    fn weight(x: f64) -> f64;
-    fn flux(x_i: f64, x_f: f64) -> f64;
-    //fn classify_location(&self, c: isize) -> Location;
-    fn clear(&mut self);
-    fn deposit<P: Particle + Send + Sync>(&mut self, pt: &[P], dt: f64);
-    fn initialize(&mut self, world: impl Communicator);
-    fn write_data(&self, world: impl Communicator, dir: &str, index: usize) -> std::io::Result<()>;
-    fn min_size() -> usize;
-}
-
-pub struct Geometry {
+/// Specifies how the simulation domain is to be divided among
+/// the various MPI processes, without actually constructing
+/// a Grid instance.
+pub struct GridDesign {
+    id: i32,
+    numtasks: i32,
+    left: Boundary,
     xmin: f64,
     dx: f64,
     nx: Vec<usize>,
     offset: Vec<f64>,
 }
 
-impl Geometry {
-    pub fn unbalanced(comm: impl Communicator, size: usize, xmin: f64, dx: f64, min_subsize: usize) -> Self {
+#[allow(non_snake_case)]
+pub trait Grid {
+    /// Constructs a new Grid based on the specified GridDesign
+    fn build(geometry: GridDesign) -> Self;
+
+    /// Returns the rank associated with the calling process.
+    fn rank(&self) -> i32;
+
+    /// Returns the number of subdomains for this particular Grid.
+    fn ngrids(&self) -> i32;
+
+    /// Rank of the process responsible for the subdomain to the left
+    /// of the calling process, if it exists.
+    fn to_left(&self) -> Option<i32>;
+
+    /// Rank of the process responsible for the subdomain to the right
+    /// of the calling process, if it exists.
+    fn to_right(&self) -> Option<i32>;
+
+    /// Synchronizes the fields and currents across all MPI processes,
+    /// updates ghost zones, and loads boundary conditions at the
+    /// specified time.
+    /// 
+    /// Must be called on all processes.
+    fn synchronize(&mut self, comm: impl Communicator, laser_y: &impl Fn(f64, f64) -> f64, laser_z: &impl Fn(f64, f64) -> f64, t: f64);
+
+    /// Calls the Maxwell solver that advance the stored electric and magnetic fields.
+    fn advance(&mut self, dt: f64);
+
+    /// Returns a tuple of (E, B), where E and B are the electric and
+    /// magnetic field vectors, at cell `c`, fractional offset `x`.
+    fn fields_at(&self, c: isize, x: f64) -> ([f64; 3], [f64; 3]);
+
+    /// Coordinate of the left-hand boundary of the calling process's subdomain.
+    fn xmin(&self) -> f64;
+
+    /// Size of a single grid cell.
+    fn dx(&self) -> f64;
+
+    /// Returns the number of cells on the calling process's subdomain,
+    /// not including ghost zones.
+    fn size(&self) -> usize;
+
+    /// Zeroes out the charges and currents, in preparation for a new
+    /// current deposition phase.
+    fn clear(&mut self);
+
+    /// Add to the grid the current density associated with a slice of
+    /// macroparticles.
+    fn deposit<P: Particle + Send + Sync>(&mut self, pt: &[P], dt: f64);
+
+    /// Optionally solve Poisson's equation for the charges and currents
+    /// loaded at the beginning of the simulation, to initialize the electric
+    /// and magnetic fields.
+    /// 
+    /// Involves synchronization, so must be called on all processes.
+    fn initialize(&mut self, world: impl Communicator);
+
+    /// Prints to file the field and currents at the current time.
+    /// `dir` specifies the target directory and `index` identifies
+    /// the current output.
+    /// 
+    /// Must be called on all processes.
+    fn write_data(&self, world: impl Communicator, dir: &str, index: usize) -> std::io::Result<()>;
+
+    /// Returns the minimum number of cells that this Grid can be
+    /// constructed with.
+    fn min_size() -> usize;
+
+    /// Returns the total electromagnetic field energy (in joules)
+    /// stored on the grid.
+    /// 
+    /// Must be called on all processes.
+    fn em_field_energy(&self, world: &impl Communicator) -> f64;
+}
+
+impl GridDesign {
+    /// Designs a grid which has `size` cells of dimension `dx`
+    /// and is to be split among the MPI processes of `comm`.
+    /// The grid is evenly divided among all processes.
+    pub fn unbalanced(comm: impl Communicator, size: usize, xmin: f64, dx: f64, min_subsize: usize, left_bdy: Boundary) -> Self {
         let numtasks = comm.size() as usize;
         let subsize = (size / numtasks).max(min_subsize);
         let nx = vec![subsize; numtasks];
@@ -58,13 +130,25 @@ impl Geometry {
             .collect();
 
         //println!("nx = {:?}, offset = {:?}", nx, offset);
-        Geometry {xmin: xmin, dx: dx, nx: nx, offset: offset}
+        GridDesign {
+            id: comm.rank(),
+            numtasks: comm.size(),
+            left: left_bdy,
+            xmin: xmin,
+            dx: dx,
+            nx: nx,
+            offset: offset
+        }
     }
 
-    pub fn balanced(comm: impl Communicator, size: usize, xmin: f64, dx: f64, min_subsize: usize, ne: &impl Fn(f64) -> f64) -> Self {
+    /// Designs a grid which has `size` cells of dimension `dx`
+    /// and is to be split among the MPI processes of `comm`.
+    /// The split is balanced such that the number of real electrons
+    /// per subdomain is approximately the same.
+    pub fn balanced(comm: impl Communicator, size: usize, xmin: f64, dx: f64, min_subsize: usize, left_bdy: Boundary, ne: &impl Fn(f64) -> f64) -> Self {
         let numtasks = comm.size() as usize;
         if numtasks == 0 {
-            return Geometry::unbalanced(comm, size, xmin, dx, min_subsize);
+            return GridDesign::unbalanced(comm, size, xmin, dx, min_subsize, left_bdy);
         }
 
         // Get total number of macroparticles
@@ -100,6 +184,14 @@ impl Geometry {
             .collect();
 
         //println!("ncells = {:?}, offset = {:?}", ncells, offset);
-        Geometry {xmin: xmin, dx: dx, nx: ncells, offset: offset}
+        GridDesign {
+            id: comm.rank(),
+            numtasks: comm.size(),
+            left: left_bdy,
+            xmin: xmin,
+            dx: dx,
+            nx: ncells,
+            offset: offset
+        }
     }
 }

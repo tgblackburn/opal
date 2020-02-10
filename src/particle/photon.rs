@@ -26,6 +26,7 @@ pub struct Photon {
     chi: f64,
     tau: [f64; 2],
     tau_abs: f64, // against one-photon absorption
+    birth_time: f64,
     flag: bool,
 }
 
@@ -38,7 +39,7 @@ impl fmt::Debug for Photon {
 unsafe impl Equivalence for Photon {
     type Out = UserDatatype;
     fn equivalent_datatype() -> Self::Out {
-        let blocklengths = [1, 1, 1, 1, 1, 1, 1, 4, 2, 1, 2, 1, 1];
+        let blocklengths = [1, 1, 1, 1, 1, 1, 1, 4, 2, 1, 2, 1, 1, 1];
         let displacements = [
             offset_of!(Photon, cell) as mpi::Address,
             offset_of!(Photon, prev_x) as mpi::Address,
@@ -52,9 +53,10 @@ unsafe impl Equivalence for Photon {
             offset_of!(Photon, chi) as mpi::Address,
             offset_of!(Photon, tau) as mpi::Address,
             offset_of!(Photon, tau_abs) as mpi::Address,
+            offset_of!(Photon, birth_time) as mpi::Address,
             offset_of!(Photon, flag) as mpi::Address,
         ];
-        let types: [&dyn Datatype; 13] = [
+        let types: [&dyn Datatype; 14] = [
             &isize::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
@@ -67,9 +69,10 @@ unsafe impl Equivalence for Photon {
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
+            &f64::equivalent_datatype(),
             &bool::equivalent_datatype(),
         ];
-        UserDatatype::structured(13, &blocklengths, &displacements, &types)
+        UserDatatype::structured(14, &blocklengths, &displacements, &types)
     }
 }
 
@@ -103,6 +106,7 @@ impl Particle for Photon {
             chi: 0.0,
             tau: [f64::INFINITY; 2],
             tau_abs: f64::INFINITY,
+            birth_time: -f64::INFINITY,
             flag: false,
         }
     }
@@ -197,6 +201,10 @@ impl Particle for Photon {
         self.k.norm_sqr().sqrt() * ELECTRON_MASS_MEV
     }
 
+    fn total_kinetic_energy(&self) -> f64 {
+        self.weight * self.energy() * 1.0e6 * ELEMENTARY_CHARGE
+    }
+
     fn weight(&self) -> f64 {
         self.weight
     }
@@ -224,6 +232,16 @@ impl Particle for Photon {
 
 #[allow(unused)]
 impl Photon {
+    pub fn at_time(&self, t: f64) -> Self {
+        let mut pt = *self;
+        pt.birth_time = t;
+        pt
+    }
+
+    pub fn birth_time(&self) -> f64 {
+        self.birth_time
+    }
+
     pub fn with_polarization_along(&self, dir: [f64; 3]) -> Self {
         let mut pt = self.clone();
         // k, basis[0] and basis[1] form a right-handed triad

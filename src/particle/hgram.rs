@@ -329,9 +329,13 @@ impl Histogram {
             ];
 
             // adjust weight to include actual size of bin / log-scaled size
-            //if bspec[0] == BinSpec::LogScaled && (hspec == HeightSpec::Density || hspec == HeightSpec::ProbabilityDensity) {
-            //    w *= bin_sz[0] / linear_bin_vol(gmin[0], bin_sz[0], bin[0]);
-            //}
+            if bspec[0] == BinSpec::LogScaled && (hspec == HeightSpec::Density || hspec == HeightSpec::ProbabilityDensity) {
+                w *= bin_sz[0] / linear_bin_vol(gmin[0], bin_sz[0], bin[0]);
+            }
+
+            if bspec[1] == BinSpec::LogScaled && (hspec == HeightSpec::Density || hspec == HeightSpec::ProbabilityDensity) {
+                w *= bin_sz[1] / linear_bin_vol(gmin[1], bin_sz[1], bin[1]);
+            }
 
             let fbin = bin[1] * nbins[1] + bin[0]; // row_index * elements_in_row + column_index
             if fbin < cts.len() {

@@ -129,6 +129,10 @@ impl Particle for Ion {
         self.gamma_m1 * (self.A * PROTON_MASS / ELECTRON_MASS) * ELECTRON_MASS_MEV
     }
 
+    fn total_kinetic_energy(&self) -> f64 {
+        self.weight * self.energy() * 1.0e6 * ELEMENTARY_CHARGE
+    }
+
     fn work(&self) -> f64 {
         self.work
     }

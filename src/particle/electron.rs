@@ -119,6 +119,12 @@ impl Particle for Electron {
         self.gamma * ELECTRON_MASS_MEV
     }
 
+    fn total_kinetic_energy(&self) -> f64 {
+        // gamma - 1 = (p/m)^2 / (gamma + 1)
+        let to_joules = 1.0e6 * ELECTRON_MASS_MEV * ELEMENTARY_CHARGE;
+        self.weight * self.u.norm_sqr() * to_joules / (self.gamma + 1.0)
+    }
+
     fn work(&self) -> f64 {
         self.work // in joules
     }
@@ -194,7 +200,7 @@ impl Electron {
         self.work
     }
 
-    pub fn radiate<R: Rng>(&mut self, rng: &mut R) -> Option<(Photon, f64)> {
+    pub fn radiate<R: Rng>(&mut self, rng: &mut R, t: f64) -> Option<(Photon, f64)> {
         if self.tau < 0.0 {
             // reset optical depth against emission
             self.tau = rng.sample(Exp1);
@@ -230,7 +236,8 @@ impl Electron {
             // construct photon
             let u = [u.x, u.y, u.z];
             let photon = Photon::create(self.cell, self.x, &u, self.weight, 0.0, 0.0)
-                .with_optical_depth(rng.sample(Exp1));
+                .with_optical_depth(rng.sample(Exp1))
+                .at_time(t);
 
             Some((photon, formation_length))
         } else {

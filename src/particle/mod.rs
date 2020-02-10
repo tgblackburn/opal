@@ -4,55 +4,132 @@ use std::fmt::{Debug};
 use mpi::traits::*;
 use rand::prelude::*;
 use rand_distr::{StandardNormal, Exp1};
-use rand_xoshiro::Xoshiro256StarStar;
 use rayon::prelude::*;
 
 mod electron;
 mod photon;
 mod ion;
 mod vec3;
-pub mod hgram;
+mod hgram;
+mod interactions;
 
 // Re-export for use in main
 pub use self::electron::*;
 pub use self::photon::*;
 pub use self::ion::*;
 pub use self::hgram::*;
+pub use self::interactions::*;
 
 // For local use
-use crate::constants::*;
 use crate::grid::Grid;
-//use hgram::*;
 
+/// A Particle represents a specific member of a species,
+/// whose dynamics can be modelled by a particle-in-cell simulation.
 #[allow(non_snake_case)]
 pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {
+    /// Creates a macroparticle
+    /// - located in the specified `cell`,
+    /// - with fractional offset `x` from the cell left-hand boundary,
+    /// - with normalized momentum (p/mc) `u`,
+    /// - specified `weight` (number of real particles represented),
+    /// - on a Grid that has spacing `dx`,
+    /// - which is advanced with timestep `dt`.
     fn create(cell: isize, x: f64, u: &[f64; 3], weight: f64, dx: f64, dt: f64) -> Self;
-    fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64);
-    fn location(&self) -> (isize, f64, f64);
-    fn transverse_displacement(&self) -> f64;
-    fn shift_cell(&mut self, delta: isize);
-    fn charge(&self) -> f64;
-    fn mass(&self) -> f64;
-    fn velocity(&self) -> [f64; 3];
-    fn energy(&self) -> f64;
-    fn work(&self) -> f64;
-    fn momentum(&self) -> [f64; 3];
-    fn weight(&self) -> f64;
-    fn chi(&self) -> f64;
+
+    /// Returns a new particle which has optical depth (against
+    /// the default QED process) set to `tau`.
+    /// Generally called with a pseudorandom argument.
     fn with_optical_depth(&self, tau: f64) -> Self;
-    fn flag(&mut self);
-    fn unflag(&mut self);
-    fn is_flagged(&self) -> bool;
+
+    /// Returns a triple of
+    /// - the particles current `cell`,
+    /// - its *current* fractional offset from the cell left-hand boundary
+    /// - the fractional offset from the same boundary at the previous timestep.
+    fn location(&self) -> (isize, f64, f64);
+
+    /// The total displacement in the perpendicular direction, since
+    /// the particle was created.
+    fn transverse_displacement(&self) -> f64;
+
+    /// Advances the particle momentum and position, using the specified
+    /// electric and magnetic fields `E` and `B`, over an interval `dt`.
+    /// The grid spacing `dx` needs to be given so that the offset can
+    /// be appropriately normalized.
+    fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64);
+
+    /// Particles that cross a subdomain boundary need their cell
+    /// index reset to account for this fact. Equivalent to:
+    /// ```
+    /// pt.cell = pt.cell + delta;
+    /// ```
+    fn shift_cell(&mut self, delta: isize);
+
+    /// Returns the charge of relevant particle species (not the
+    /// total charge of the macroparticle).
+    fn charge(&self) -> f64;
+
+    /// Returns the mass of the relevant particle species (not the
+    /// total mass of the macroparticle).
+    fn mass(&self) -> f64;
+
+    /// Returns the three-velocity of the particle.
+    fn velocity(&self) -> [f64; 3];
+
+    /// Returns the relativistic energy (in MeV), equivalent to the particle velocity.
+    fn energy(&self) -> f64;
+
+    /// Returns the relativistic momentum (in MeV/c), equivalent to the particle velocity.
+    fn momentum(&self) -> [f64; 3];
+
+    /// Returns the four-momentum of this particle, normalized to its mass
+    /// and the speed of light.
     fn normalized_four_momentum(&self) -> [f64; 4];
 
+    /// Returns the work done by the electromagnetic field over the
+    /// particle trajectory (in joules), for a single particle
+    /// with the velocity. Scale by weight() to obtain the work done
+    /// on the macroparticle.
+    fn work(&self) -> f64;
+
+    /// Returns the kinetic energy of the macroparticle, in joules.
+    fn total_kinetic_energy(&self) -> f64;
+
+    /// Returns the weight of the macroparticle, i.e. the number of real particles
+    /// it represents.
+    fn weight(&self) -> f64;
+
+    /// Returns the quantum nonlinearity parameter for this particle.
+    fn chi(&self) -> f64;
+
+    /// Flags this particle, for user-defined purposes.
+    fn flag(&mut self);
+
+    /// Removes the flag from this particle, if already flagged.
+    fn unflag(&mut self);
+
+    /// Tests if this particle has been flagged for some purpose.
+    fn is_flagged(&self) -> bool;
+
+    /// If this particle has a spin property, return its value.
     fn spin_state(&self) -> Option<f64> {
         None
     }
+
+    /// Identify the spin property for a particle of this species,
+    /// if one exists.
     fn spin_state_name(&self) -> Option<&'static str> {
         None
     }
+
 }
 
+/// A Population<T> is the principal means by which the main
+/// simulation loop interacts with particles of type T.
+/// By default, Populations know how to identify, advance
+/// and print information about themselves.
+/// Particle-field and particle-particle interactions are
+/// modelled by coupling concrete implementations of
+/// the Population trait.
 pub struct Population<T: Particle> {
     store: Vec<T>,
     output: Vec<String>,
@@ -60,10 +137,14 @@ pub struct Population<T: Particle> {
 }
 
 impl<T> Population<T> where T: Particle + Send + Sync {
+    /// Return an immutable slice of all the particles owned
+    /// by `self`.
     pub fn all(&self) -> &[T] {
         &self.store[..]
     }
 
+    /// Creates an empty, anonymous population of the
+    /// given species.
     pub fn new_empty() -> Population<T> {
         let v: Vec<T> = Vec::new();
         Population {
@@ -73,6 +154,13 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         }
     }
 
+    /// Creates a population of particles T, with
+    /// - `npc` macroparticles per cell,
+    /// - number density as a function of `x`, `number_density`,
+    /// - normalized momentum components `ux`, `uy` and `uz`, all possibly functions of `x`,
+    /// - on the specified `grid`,
+    /// - using the random number generator `rng`,
+    /// - where the simulation timestep is `dt`.
     pub fn new<F1,F3,G,R>(npc: usize, number_density: F1, ux: F3, uy: F3, uz: F3, grid: &G, rng: &mut R, dt: f64) -> Population<T>
     where F1: Fn(f64) -> f64, F3: Fn(f64, f64, f64) -> f64, G: Grid, R: Rng
     {
@@ -106,21 +194,47 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         }
     }
 
+    /// Applies the function `f` to all particles in this population.
     pub fn map_in_place<F: Fn(&mut T)>(&mut self, f: F) -> &mut Self {
         self.store.iter_mut().for_each(f);
         self
     }
 
+    /// Specifies that this population should write output as given by `ospec`.
     pub fn with_output(&mut self, ospec: Vec<String>) -> &mut Self {
         self.output = ospec;
         self
     }
 
+    /// Specifies the `name` of the population. Singular by default.
     pub fn with_name(&mut self, name: &str) -> &mut Self {
         self.name = name.to_owned();
         self
     }
 
+    /// Returns the total kinetic energy, of all Populations of this type,
+    /// across all grids, in joules.
+    /// - Must be called on all processes.
+    #[allow(non_snake_case)]
+    pub fn total_kinetic_energy(&self, comm: &impl Communicator) -> f64 {
+        use mpi::collective::SystemOperation;
+
+        let local = self.store.par_iter().map(|pt| pt.total_kinetic_energy()).sum::<f64>();
+
+        if comm.rank() == 0 {
+            let mut global = 0.0;
+            comm.process_at_rank(0).reduce_into_root(&local, &mut global, SystemOperation::sum());
+            global
+        } else {
+            comm.process_at_rank(0).reduce_into(&local, SystemOperation::sum());
+            local
+        }
+    }
+
+    /// Advance this Population by time `dt`, using the electromagnetic field
+    /// stored on the local subdomain `grid`.
+    /// Then exchange particles that have crossed a subdomain boundary.
+    /// - Must be called on all processes.
     #[allow(non_snake_case)]
     pub fn advance<C,G>(&mut self, comm: &C, grid: &G, dt: f64)
     where C: Communicator, G: Grid + Sync {
@@ -235,12 +349,11 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         //assert!(num - gone_left - gone_right + recv_left.len() + recv_right.len() == self.store.len());
     }
 
-    /*
-    pub fn size(&self) -> usize {
-        self.store.len()
-    }
-    */
-
+    /// Constructs the requested distribution functions and writes them to
+    /// the specified `directory`. Each set of output is identified by the
+    /// given `index` and the Population name.
+    /// - Must be called on all processes.
+    /// - At the moment, distribution functions can be, at most, two-dimensional.
     pub fn write_data<C,G>(&self, comm: &C, grid: &G, directory: &str, index: usize) -> std::io::Result<()> 
     where C: Communicator, G: Grid {
         use std::io::{Error, ErrorKind};
@@ -429,204 +542,5 @@ impl<T> Population<T> where T: Particle + Send + Sync {
     }
 }
 
-// Couple different particle species here:
-
-pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, min_energy: Option<f64>, max_angle: Option<f64>, max_formation_length: Option<f64>) {
-    let ne = e.store.len();
-    let nthreads = rayon::current_num_threads();
-    // chunk length cannot be zero
-    let chunk_len = if ne > nthreads {
-        ne / nthreads
-    } else {
-        1 // guarantee this runs
-    };
-
-    // find an rng that can be skipped ahead
-    // each thread clones and jumps ahead by a different amount
-    // finally, rng is jumped ahead by the total
-    let emitted: Vec<Photon> = e.store
-        .par_chunks_mut(chunk_len)
-        .enumerate()
-        .map(|(i, chunk): (usize, &mut [Electron])| -> Vec<Photon> {
-            let mut rng = rng.clone();
-            for _ in 0..i {
-                rng.jump(); // avoid overlapping sequences of randoms
-            }
-            let mut v: Vec<Photon> = Vec::new();
-            for e in chunk {
-                let result = e.radiate(&mut rng);
-                if result.is_none() {
-                    continue;
-                } else {
-                    let (photon, formation_length) = result.unwrap();
-
-                    let energy_within_bounds = if let Some(min) = min_energy {
-                        photon.energy() >= min
-                    } else {
-                        true
-                    };
-
-                    let angle_within_bounds = if let Some(max) = max_angle {
-                        let p = photon.momentum();
-                        let magnitude = (p[0].powi(2) + p[1].powi(2) + p[2].powi(2)).sqrt();
-                        let angle = f64::acos(-p[0] / magnitude); // polar angle to negative x-axis
-                        angle <= max
-                    } else {
-                        true
-                    };
-
-                    let formation_length_ok = if let Some(max) = max_formation_length {
-                        formation_length < max
-                    } else {
-                        true
-                    };
-
-                    if energy_within_bounds && angle_within_bounds && formation_length_ok {
-                        v.push(photon);
-                    }
-                }
-            }
-            v
-        })
-        .flatten()
-        .collect();
-
-    rng.long_jump();
-    ph.store.extend_from_slice(&emitted[..]);
-}
-
-pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, dt: f64, dx: f64, max_displacement: Option<f64>) {
-    const PHOTON_E_ECRIT_CUTOFF: f64 = 1.0e-8;
-
-    if e.store.is_empty() || ph.store.is_empty() {
-        return;
-    }
-
-    let nph = ph.store.len();
-    let nthreads = rayon::current_num_threads();
-    let chunk_len = if nph > nthreads {
-        nph / nthreads
-    } else {
-        nph // guarantee this runs
-    };
-
-    // return a Vec of:
-    //  index of the electron that did the absorbing
-    //  and the photon that was absorbed
-    let absorbed: Vec<(usize,Photon)> =
-        ph.store
-        .par_chunks_mut(chunk_len)
-        .map(
-            |chunk: &mut [Photon]| -> Vec<(usize,Photon)> {
-                let mut prev_cell: isize = -1;
-                let mut start: Option<usize> = None;
-                let mut end: Option<usize> = None;
-                let mut absorbed: Vec<(usize,Photon)> = Vec::new();
-
-                for photon in chunk.iter_mut() {
-                    if photon.chi() * ELECTRON_MASS_MEV / photon.energy() < PHOTON_E_ECRIT_CUTOFF {
-                        continue;
-                    }
-
-                    // ignore photons that have travelled a given perp distance
-                    if let Some(r_max) = max_displacement {
-                        if photon.transverse_displacement() > r_max {
-                            continue;
-                        }
-                    }
-
-                    let (cell, _, _) = photon.location();
-                    //println!("photon in cell {}", cell);
-
-                    // find start and end indices of electrons in the same cell
-                    if cell != prev_cell {
-                        //println!("finding electrons in {}, starting from {}", cell, end.unwrap_or(0));
-                        start = e.store.iter()
-                            .skip( end.unwrap_or(0) )
-                            .position(|e| e.location().0 == cell)
-                            .map(|i| i + end.unwrap_or(0));
-
-                        /*
-                        if start.is_some() {
-                            println!("first electron at {}, cell = {:?}", start.unwrap(), e.store[start.unwrap()].location());
-                        } else {
-                            println!("start is none");
-                        }
-                        */
-
-                        end = if start.is_none() {
-                            None
-                        } else {
-                            e.store.iter()
-                                .skip( start.unwrap() )
-                                .position(|e| e.location().0 != cell)
-                                .map(|i| i + start.unwrap() )
-                        };
-
-                        /*
-                        if end.is_some() {
-                            println!("final electron at {}, cell = {:?}", end.unwrap() - 1, e.store[end.unwrap() - 1].location());
-                        } else {
-                            println!("end is none");
-                        }
-                        */
-                    }
-                    
-                    prev_cell = cell;
-
-                    // both start and end must be Some, or there are no electrons
-                    // in the same cell as the present photon
-                    if start.is_none() || end.is_none() {
-                        //println!("No electron in same cell");
-                        continue;
-                    }
-
-                    //println!("testing against electrons {}..{}", start.unwrap(), end.unwrap());
-                    let electrons = &e.store[start.unwrap()..end.unwrap()];
-
-                    for (j, e) in electrons.iter().enumerate() {
-                        if photon.is_absorbed_by(e, dt, dx) {
-                            photon.flag(); // mark photon for deletion
-                            absorbed.push( (j + start.unwrap(), photon.clone()) );
-                            break; // jump to next photon
-                        }
-                    } // loop over electrons in same cell
-                } // loop over all photons
-
-                absorbed
-            })
-        .reduce(|| Vec::<(usize,Photon)>::new(), |a, b| [a,b].concat());
-    
-    if absorbed.len() > 0 {
-        //ph.store.retain(|ph| !ph.is_flagged());
-        //for i in (0..ph.store.len()).rev() {
-        //    if ph.store[i].is_flagged() {
-        //        ph.store.swap_remove(i);
-        //    }
-        //}
-        let mut tmp: Vec<Photon> = Vec::new();
-        std::mem::swap(&mut ph.store, &mut tmp); // ph.store holds empty Vec, can consume tmp
-        let mut split: Vec<Vec<Photon>> = tmp.into_par_iter().chunks(chunk_len).collect();
-        split.par_iter_mut().for_each(|s: &mut Vec<Photon>| {
-            for i in (0..s.len()).rev() {
-                if s[i].is_flagged() {
-                    s.swap_remove(i);
-                }
-            }
-        });
-        ph.store = split.concat();
-    }
-
-    // Each electron can only absorb one photon per timestep
-    //absorbed.dedup_by_key(|(i, _ph)| *i);
-    // handle energy change
-    for (i, photon) in absorbed.iter() {
-        e.store.get_mut(*i).map(|pt| pt.absorb(photon));
-    }
-
-    //if absorbed.len() > 0 {
-    //    println!("Absorbed {} macrophotons, len {} -> {}", absorbed.len(), nph, ph.store.len());
-    //}
-}
 
 

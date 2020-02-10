@@ -312,78 +312,77 @@ mod tests {
         assert!( ((value - target) / target).abs() < 1.0e-3 );
     }
 
-    #[test]
-    fn classical_spectrum() {
-        use rand::prelude::*;
-        use rand_xoshiro::*;
-        use std::fs::File;
-        use std::io::Write;
+    // #[test]
+    // fn classical_spectrum() {
+    //     use rand::prelude::*;
+    //     use rand_xoshiro::*;
+    //     use std::fs::File;
+    //     use std::io::Write;
 
-        let chi = 0.01;
-        let gamma = 1000.0;
-        let mut rng = Xoshiro256StarStar::seed_from_u64(0);
-        let mut results: Vec<(f64, f64)> = Vec::new();
+    //     let chi = 0.01;
+    //     let gamma = 1000.0;
+    //     let mut rng = Xoshiro256StarStar::seed_from_u64(0);
+    //     let mut results: Vec<(f64, f64)> = Vec::new();
 
-        // 2_000_000 for something more stringent
-        for _i in 0..100_000 {
-            let (omega_mc2, theta, _) = classical_sample(chi, gamma, rng.gen(), rng.gen(), rng.gen());
-            results.push((omega_mc2 / gamma, gamma * theta));
-        }
+    //     // 2_000_000 for something more stringent
+    //     for _i in 0..100_000 {
+    //         let (omega_mc2, theta, _) = classical_sample(chi, gamma, rng.gen(), rng.gen(), rng.gen());
+    //         results.push((omega_mc2 / gamma, gamma * theta));
+    //     }
 
-        let mut file = File::create("ClassicalSpectrumTest.dat").unwrap();
-        for result in &results {
-            writeln!(file, "{} {}", result.0, result.1).unwrap();
-        }
-    }
+    //     let mut file = File::create("ClassicalSpectrumTest.dat").unwrap();
+    //     for result in &results {
+    //         writeln!(file, "{} {}", result.0, result.1).unwrap();
+    //     }
+    // }
 
-    #[test]
-    fn quantum_spectrum() {
-        use rand::prelude::*;
-        use rand_xoshiro::*;
-        use std::fs::File;
-        use std::io::Write;
-        use crate::particle::hgram::*;
+    // #[test]
+    // fn quantum_spectrum() {
+    //     use rand::prelude::*;
+    //     use rand_xoshiro::*;
+    //     use std::fs::File;
+    //     use std::io::Write;
+    //     use crate::particle::hgram::*;
 
-        let chi = 0.07;
-        let gamma = 1000.0;
-        let gamma_theta_max = 10.0;
-        let mut rng = Xoshiro256StarStar::seed_from_u64(0);
-        let mut results: Vec<(f64, f64)> = Vec::new();
+    //     let chi = 0.07;
+    //     let gamma = 1000.0;
+    //     let gamma_theta_max = 10.0;
+    //     let mut rng = Xoshiro256StarStar::seed_from_u64(0);
+    //     let mut results: Vec<(f64, f64)> = Vec::new();
 
-        // 4_000_000 for something more stringent
-        for _i in 0..100_000 {
-            let (omega_mc2, theta, _) = sample(chi, gamma, rng.gen(), rng.gen(), rng.gen());
-            results.push((omega_mc2 / gamma, gamma * theta));
-        }
+    //     // 4_000_000 for something more stringent
+    //     for _i in 0..100_000 {
+    //         let (omega_mc2, theta, _) = sample(chi, gamma, rng.gen(), rng.gen(), rng.gen());
+    //         results.push((omega_mc2 / gamma, gamma * theta));
+    //     }
 
-        let mut file = File::create("QuantumSpectrumTest.dat").unwrap();
-        for result in &results {
-            writeln!(file, "{} {}", result.0, result.1).unwrap();
-        }
+    //     let mut file = File::create("QuantumSpectrumTest.dat").unwrap();
+    //     for result in &results {
+    //         writeln!(file, "{} {}", result.0, result.1).unwrap();
+    //     }
 
-        let universe = mpi::initialize().unwrap();
-        let world = universe.world();
+    //     let universe = mpi::initialize().unwrap();
+    //     let world = universe.world();
 
-        let first = Box::new(|t: &(f64, f64)| t.0.ln()) as Box<dyn Fn(&(f64,f64)) -> f64>;
-        let second = Box::new(|t: &(f64, f64)| t.1.ln()) as Box<dyn Fn(&(f64,f64)) -> f64>;
-        let hgram = Histogram::generate_2d(&world, &results, [&first, &second], &|_t| 1.0, ["omega/mc^2", "gamma theta"], ["1", "1"], [BinSpec::Automatic, BinSpec::Automatic], HeightSpec::ProbabilityDensity).unwrap();
-        hgram.write_fits("!QuantumSpectrumTest_LogScaled.fits").unwrap();
+    //     let first = Box::new(|t: &(f64, f64)| t.0.ln()) as Box<dyn Fn(&(f64,f64)) -> f64>;
+    //     let second = Box::new(|t: &(f64, f64)| t.1.ln()) as Box<dyn Fn(&(f64,f64)) -> f64>;
+    //     let hgram = Histogram::generate_2d(&world, &results, [&first, &second], &|_t| 1.0, ["omega/mc^2", "gamma theta"], ["1", "1"], [BinSpec::Automatic, BinSpec::Automatic], HeightSpec::ProbabilityDensity).unwrap();
+    //     hgram.write_fits("!QuantumSpectrumTest_LogScaled.fits").unwrap();
 
-        //let subset: Vec<(f64, f64)> = results.into_iter().filter(|t| t.1 < 10.0).collect();
-        let subset: Vec<(f64, f64)> = results
-            .iter()
-            .map(|t|
-                if t.1 > gamma_theta_max {
-                    (t.0, std::f64::NAN)
-                } else {
-                    *t
-                })
-            .collect();
+    //     //let subset: Vec<(f64, f64)> = results.into_iter().filter(|t| t.1 < 10.0).collect();
+    //     let subset: Vec<(f64, f64)> = results
+    //         .iter()
+    //         .map(|t|
+    //             if t.1 > gamma_theta_max {
+    //                 (t.0, std::f64::NAN)
+    //             } else {
+    //                 *t
+    //             })
+    //         .collect();
 
-        let first = Box::new(|t: &(f64, f64)| t.0) as Box<dyn Fn(&(f64,f64)) -> f64>;
-        let second = Box::new(|t: &(f64, f64)| t.1) as Box<dyn Fn(&(f64,f64)) -> f64>;
-        let hgram = Histogram::generate_2d(&world, &subset, [&first, &second], &|_t| 1.0, ["omega/mc^2", "gamma theta"], ["1", "1"], [BinSpec::Automatic, BinSpec::Automatic], HeightSpec::ProbabilityDensity).unwrap();
-        hgram.write_fits("!QuantumSpectrumTest.fits").unwrap();
-
-    }
+    //     let first = Box::new(|t: &(f64, f64)| t.0) as Box<dyn Fn(&(f64,f64)) -> f64>;
+    //     let second = Box::new(|t: &(f64, f64)| t.1) as Box<dyn Fn(&(f64,f64)) -> f64>;
+    //     let hgram = Histogram::generate_2d(&world, &subset, [&first, &second], &|_t| 1.0, ["omega/mc^2", "gamma theta"], ["1", "1"], [BinSpec::Automatic, BinSpec::Automatic], HeightSpec::ProbabilityDensity).unwrap();
+    //     hgram.write_fits("!QuantumSpectrumTest.fits").unwrap();
+    // }
 }
