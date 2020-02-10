@@ -23,39 +23,113 @@ pub use self::interactions::*;
 // For local use
 use crate::grid::Grid;
 
+/// A Particle represents a specific member of a species,
+/// whose dynamics can be modelled by a particle-in-cell simulation.
 #[allow(non_snake_case)]
 pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {
+    /// Creates a macroparticle
+    /// - located in the specified `cell`,
+    /// - with fractional offset `x` from the cell left-hand boundary,
+    /// - with normalized momentum (p/mc) `u`,
+    /// - specified `weight` (number of real particles represented),
+    /// - on a Grid that has spacing `dx`,
+    /// - which is advanced with timestep `dt`.
     fn create(cell: isize, x: f64, u: &[f64; 3], weight: f64, dx: f64, dt: f64) -> Self;
-    fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64);
-    fn location(&self) -> (isize, f64, f64);
-    fn transverse_displacement(&self) -> f64;
-    fn shift_cell(&mut self, delta: isize);
-    fn charge(&self) -> f64;
-    fn mass(&self) -> f64;
-    fn velocity(&self) -> [f64; 3];
-    fn energy(&self) -> f64;
-    fn work(&self) -> f64;
-    fn momentum(&self) -> [f64; 3];
-    fn weight(&self) -> f64;
-    fn chi(&self) -> f64;
+
+    /// Returns a new particle which has optical depth (against
+    /// the default QED process) set to `tau`.
+    /// Generally called with a pseudorandom argument.
     fn with_optical_depth(&self, tau: f64) -> Self;
-    fn flag(&mut self);
-    fn unflag(&mut self);
-    fn is_flagged(&self) -> bool;
+
+    /// Returns a triple of
+    /// - the particles current `cell`,
+    /// - its *current* fractional offset from the cell left-hand boundary
+    /// - the fractional offset from the same boundary at the previous timestep.
+    fn location(&self) -> (isize, f64, f64);
+
+    /// The total displacement in the perpendicular direction, since
+    /// the particle was created.
+    fn transverse_displacement(&self) -> f64;
+
+    /// Advances the particle momentum and position, using the specified
+    /// electric and magnetic fields `E` and `B`, over an interval `dt`.
+    /// The grid spacing `dx` needs to be given so that the offset can
+    /// be appropriately normalized.
+    fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64);
+
+    /// Particles that cross a subdomain boundary need their cell
+    /// index reset to account for this fact. Equivalent to:
+    /// ```
+    /// pt.cell = pt.cell + delta;
+    /// ```
+    fn shift_cell(&mut self, delta: isize);
+
+    /// Returns the charge of relevant particle species (not the
+    /// total charge of the macroparticle).
+    fn charge(&self) -> f64;
+
+    /// Returns the mass of the relevant particle species (not the
+    /// total mass of the macroparticle).
+    fn mass(&self) -> f64;
+
+    /// Returns the three-velocity of the particle.
+    fn velocity(&self) -> [f64; 3];
+
+    /// Returns the relativistic energy (in MeV), equivalent to the particle velocity.
+    fn energy(&self) -> f64;
+
+    /// Returns the relativistic momentum (in MeV/c), equivalent to the particle velocity.
+    fn momentum(&self) -> [f64; 3];
+
+    /// Returns the four-momentum of this particle, normalized to its mass
+    /// and the speed of light.
     fn normalized_four_momentum(&self) -> [f64; 4];
 
+    /// Returns the work done by the electromagnetic field over the
+    /// particle trajectory (in joules), for a single particle
+    /// with the velocity. Scale by weight() to obtain the work done
+    /// on the macroparticle.
+    fn work(&self) -> f64;
+
+    /// Returns the kinetic energy of the macroparticle, in joules.
+    fn total_kinetic_energy(&self) -> f64;
+
+    /// Returns the weight of the macroparticle, i.e. the number of real particles
+    /// it represents.
+    fn weight(&self) -> f64;
+
+    /// Returns the quantum nonlinearity parameter for this particle.
+    fn chi(&self) -> f64;
+
+    /// Flags this particle, for user-defined purposes.
+    fn flag(&mut self);
+
+    /// Removes the flag from this particle, if already flagged.
+    fn unflag(&mut self);
+
+    /// Tests if this particle has been flagged for some purpose.
+    fn is_flagged(&self) -> bool;
+
+    /// If this particle has a spin property, return its value.
     fn spin_state(&self) -> Option<f64> {
         None
     }
+
+    /// Identify the spin property for a particle of this species,
+    /// if one exists.
     fn spin_state_name(&self) -> Option<&'static str> {
         None
     }
 
-    /// Returns the product of the particle weight and
-    /// its kinetic energy, in joules.
-    fn total_kinetic_energy(&self) -> f64;
 }
 
+/// A Population<T> is the principal means by which the main
+/// simulation loop interacts with particles of type T.
+/// By default, Populations know how to identify, advance
+/// and print information about themselves.
+/// Particle-field and particle-particle interactions are
+/// modelled by coupling concrete implementations of
+/// the Population trait.
 pub struct Population<T: Particle> {
     store: Vec<T>,
     output: Vec<String>,
@@ -63,10 +137,14 @@ pub struct Population<T: Particle> {
 }
 
 impl<T> Population<T> where T: Particle + Send + Sync {
+    /// Return an immutable slice of all the particles owned
+    /// by `self`.
     pub fn all(&self) -> &[T] {
         &self.store[..]
     }
 
+    /// Creates an empty, anonymous population of the
+    /// given species.
     pub fn new_empty() -> Population<T> {
         let v: Vec<T> = Vec::new();
         Population {
@@ -76,6 +154,13 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         }
     }
 
+    /// Creates a population of particles T, with
+    /// - `npc` macroparticles per cell,
+    /// - number density as a function of `x`, `number_density`,
+    /// - normalized momentum components `ux`, `uy` and `uz`, all possibly functions of `x`,
+    /// - on the specified `grid`,
+    /// - using the random number generator `rng`,
+    /// - where the simulation timestep is `dt`.
     pub fn new<F1,F3,G,R>(npc: usize, number_density: F1, ux: F3, uy: F3, uz: F3, grid: &G, rng: &mut R, dt: f64) -> Population<T>
     where F1: Fn(f64) -> f64, F3: Fn(f64, f64, f64) -> f64, G: Grid, R: Rng
     {
@@ -109,21 +194,27 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         }
     }
 
+    /// Applies the function `f` to all particles in this population.
     pub fn map_in_place<F: Fn(&mut T)>(&mut self, f: F) -> &mut Self {
         self.store.iter_mut().for_each(f);
         self
     }
 
+    /// Specifies that this population should write output as given by `ospec`.
     pub fn with_output(&mut self, ospec: Vec<String>) -> &mut Self {
         self.output = ospec;
         self
     }
 
+    /// Specifies the `name` of the population. Singular by default.
     pub fn with_name(&mut self, name: &str) -> &mut Self {
         self.name = name.to_owned();
         self
     }
 
+    /// Returns the total kinetic energy, of all Populations of this type,
+    /// across all grids, in joules.
+    /// - Must be called on all processes.
     #[allow(non_snake_case)]
     pub fn total_kinetic_energy(&self, comm: &impl Communicator) -> f64 {
         use mpi::collective::SystemOperation;
@@ -140,6 +231,10 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         }
     }
 
+    /// Advance this Population by time `dt`, using the electromagnetic field
+    /// stored on the local subdomain `grid`.
+    /// Then exchange particles that have crossed a subdomain boundary.
+    /// - Must be called on all processes.
     #[allow(non_snake_case)]
     pub fn advance<C,G>(&mut self, comm: &C, grid: &G, dt: f64)
     where C: Communicator, G: Grid + Sync {
@@ -254,12 +349,11 @@ impl<T> Population<T> where T: Particle + Send + Sync {
         //assert!(num - gone_left - gone_right + recv_left.len() + recv_right.len() == self.store.len());
     }
 
-    /*
-    pub fn size(&self) -> usize {
-        self.store.len()
-    }
-    */
-
+    /// Constructs the requested distribution functions and writes them to
+    /// the specified `directory`. Each set of output is identified by the
+    /// given `index` and the Population name.
+    /// - Must be called on all processes.
+    /// - At the moment, distribution functions can be, at most, two-dimensional.
     pub fn write_data<C,G>(&self, comm: &C, grid: &G, directory: &str, index: usize) -> std::io::Result<()> 
     where C: Communicator, G: Grid {
         use std::io::{Error, ErrorKind};
