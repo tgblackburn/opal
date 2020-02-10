@@ -1,3 +1,61 @@
+//! Module implementing YeeGrid and its associated Cell.
+//!
+//! Call in this order:
+//!   - output (E, B and particle positions at t = 0)
+//!   - map to particle, push
+//!   - deposit currents, synchronize grid
+//!   - half B advance
+//!   - full E advance
+//!   - half B advance
+//!
+//! Why? These are the times at which quantities are stored on the grid.
+//! For the field-mapping stage, we need only the cells [-1] to [n+1].
+//! ```text 
+//!    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
+//!  --|-------------------------|------- - - - --------|-------------------------|
+//!  J |                         |                      |                         |
+//!  B |                     0   |   0              0   |   0     0               |
+//!  E |                     0   |   0              0   |   0     0               |
+//! ```
+//! The push advances positions from 0 to 1, and velocities from -1/2 to 1/2.
+//! Following push, current deposition and synchronization, everything is aligned
+//! ```text
+//!    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
+//!  --|-------------------------|------- - - - --------|-------------------------|
+//!  J |  1/2   1/2   1/2   1/2  |                      |  1/2   1/2   1/2   1/2  |
+//!  B |   0     0     0     0   |   0              0   |   0     0     0     0   |
+//!  E |   0     0     0     0   |   0              0   |   0     0     0     0   |
+//! ```
+//! Advance B by half a step in all cells [-4] to [n+2]. This requires E at t = 0
+//! locally and in the cell to the right:
+//! ```text
+//!    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
+//!  --|-------------------------|------- - - - --------|-------------------------|
+//!  J |  1/2   1/2   1/2   1/2  |                      |  1/2   1/2   1/2   1/2  |
+//!  B |  1/2   1/2   1/2   1/2  |  1/2            1/2  |  1/2   1/2   1/2    0   |
+//!  E |   0     0     0     0   |   0              0   |   0     0     0     0   |
+//! ```
+//! Then advance E by a full step in cells [-3] to [n+3]. This requires j and B
+//! at t = 1/2 locally and in the cell to the left. An error is made in [n+3].
+//! ```text
+//!    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
+//!  --|-------------------------|------- - - - --------|-------------------------|
+//!  J |  1/2   1/2   1/2   1/2  |                      |  1/2   1/2   1/2   1/2  |
+//!  B |  1/2   1/2   1/2   1/2  |  1/2            1/2  |  1/2   1/2   1/2    0   |
+//!  E |   0     1     1     1   |   1              1   |   1     1     1     E   |
+//! ```
+//! Now finish the B advance in cells [-4] to [n+2]. This requires E at t = 1
+//! locally and in the cell to the right.
+//! ```text
+//!    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
+//!  --|-------------------------|------- - - - --------|-------------------------|
+//!  J |  1/2   1/2   1/2   1/2  |                      |  1/2   1/2   1/2   1/2  |
+//!  B |   E     1     1     1   |   1              1   |   1     1     E     0   |
+//!  E |   0     1     1     1   |   1              1   |   1     1     1     E   |
+//! ```
+//! Cells containing E are incorrect, but when the loop repeats, these are
+//! overwritten by the synchronization.
+
 use std::ops::Add;
 use mpi::traits::*;
 use mpi::datatype::UserDatatype;
@@ -9,6 +67,19 @@ use num_traits::identities::Zero;
 use crate::constants::*;
 use crate::grid::*;
 
+/// Cell represents a small spatial region of the specified grid,
+/// over which field and current quantities are considered to be constant.
+///
+/// YeeGrid stores a 1D array of these cells, so that the nxth cell
+/// has this structure, where nx is in the range [0, grid.size - 1]:
+/// ```text
+///        nx * dx          (nx + 1) * dx
+///           |                   |
+///           |---------|---------|
+///           |                   |
+/// ```
+/// rho, jy, jz, Ey, Ez and Bx are defined at the left-hand edge.
+/// jx, Ex, By and Bz are defined at the cell centre.
 #[allow(non_snake_case)]
 #[derive(Copy,Clone)]
 #[repr(C)]
@@ -21,7 +92,8 @@ struct Cell {
 }
 
 impl Cell {
-    // sums charges and currents, overwrites E and B.
+    /// Adds to `self` the charges and currents in `other`,
+    /// and *overwrites* E and B.
     fn overlay_ghost(&mut self, other: &Cell) {
         self.rho += other.rho;
         self.j[0] += other.j[0];
@@ -30,12 +102,105 @@ impl Cell {
         self.E = other.E;
         self.B = other.B;
     }
-    // does not overwrite E and B
+
+    /// Adds to `self` the charges and currents in `other`,
+    /// but leaves E and B unchanged.
     fn overlay(&mut self, other: &Cell) {
         self.rho += other.rho;
         self.j[0] += other.j[0];
         self.j[1] += other.j[1];
         self.j[2] += other.j[2];
+    }
+
+    /// Weighting function to map grid point values to the particle.
+    /// ```text
+    ///                         xhat
+    ///                   |<------------>|
+    ///                 1 .       .------|------.
+    ///                 .'|`.     |      |      |
+    ///               .'  |  `.   |      |      |
+    ///             .'    |    `. |      |      |
+    ///           .'      |      `.      |      |
+    ///         .'        |       |`.    |      |
+    ///       .'          |       |XX`.  |      |
+    /// <----|------------|-------|----|-|------|----> x / dx
+    ///      -1           0            1
+    /// ```
+    /// xhat is the distance from the particle centre to a point on the grid, measured
+    /// in units of the grid spacing. The weight associated with that point is given
+    /// by weight(xhat), which is non-zero for 0 < xhat < 3/2. The sum of all the weights
+    /// of grid points within 3/2 of the particle centre is 1.
+    ///
+    /// Grid points have shape defined by a b-spline of order 0 i.e. a top-hat of
+    ///total width dx. Particles have shape defined by a b-spline of order 1, i.e.
+    /// a triangle with total width 2 dx.
+    ///
+    /// By the definition of b-splines, the interpolation function, i.e. the
+    /// convolution of these shapes, is a b-spline of order 2.
+    fn weight(xi: f64) -> f64 {
+        let xhat = xi.abs();
+        if xhat > 1.5 {
+            return 0.0;
+        } else if xhat < 0.5 {
+            return 0.75 - xhat.powi(2);
+        } else {
+            return 1.125 - 1.5 * xhat + 0.5 * xhat.powi(2);
+        }
+    }
+
+    /// flux gives the `amount' of particle that has flowed through an
+    /// imaginary boundary whose displacement from the particle centre is initially
+    /// x_i and finally x_f.
+    ///
+    /// The magnitude of that flux is given by the shaded region pictured here:
+    /// ```text
+    ///                    |
+    ///                    .
+    ///                  .'|`. |<--| movement of boundary
+    ///                .'  |  `.
+    ///              .'    |   |`.
+    ///            .'      |   |XX`.
+    ///          .'        |   |XXX|`.
+    ///        .'          |   |XXX|  `.
+    ///  <----|------------|---|---|----|----> x / dx
+    ///       -1           0   |   |    1
+    ///                       x_f x_i
+    /// ```
+    /// NB: We assume that the boundary moves less than dx i.e. x_i - x_f < dx
+    ///
+    /// We use the following sign conventions:
+    ///
+    /// x := x_bdy - x_pt i.e. if the particle is to the *left* of the boundary
+    ///                       the initial distance is considered positive.
+    ///
+    /// If x_i > x_f, the particle is moving across the boundary from left to right
+    /// and the flux is considered positive.
+    ///
+    /// This function exactly conserves particle weight, i.e.
+    /// 
+    ///    delta W(x)  = - flux (x - 1/2) + flux (x + 1/2)
+    ///
+    /// where W is the weight of the particle at the point midway between the two
+    /// boundaries.
+    fn flux(x_i: f64, x_f: f64) -> f64 {
+        if x_i.abs() < 1.0 {
+            if x_f.abs() >= 1.0 {
+                let v = 0.5 * (1.0 - x_i.abs()).powi(2);
+                v.copysign(-x_i)
+            } else if x_i * x_f >= 0.0 { // x_i and x_f have the same sign
+                let v = 0.5 * (1.0 - x_f.abs()).powi(2) - 0.5 * (1.0 - x_i.abs()).powi(2);
+                v.copysign(x_i - x_f)
+            } else { // x_i and x_f have different signs
+                let v = x_i.abs() * (1.0 - 0.5 * x_i.abs()) + x_f.abs() * (1.0 - 0.5 * x_f.abs());
+                v.copysign(x_i)
+            }
+        }
+        else if x_f.abs() < 1.0 { // and |x_i| >= 1.0
+            let v = 0.5 * (1.0 - x_f.abs()).powi(2);
+            v.copysign(x_f)
+        } else { // both x_i and x_f outside particle
+            0.0
+        }
     }
 }
 
@@ -66,6 +231,7 @@ impl Zero for Cell {
     }
 }
 
+/// Defines a equivalent MPI datatype for Cell
 unsafe impl Equivalence for Cell {
     type Out = UserDatatype;
     fn equivalent_datatype() -> Self::Out {
@@ -87,6 +253,17 @@ const GHOST_SIZE: isize = 4;
 const LASER_BDY_SIZE: isize = 4;
 const ABSORBING_BDY_SIZE: isize = 200;
 
+/// YeeGrid discretizes the electromagnetic field and associated
+/// currents into a 1D Cartesian mesh of equally sized cells.
+/// 
+/// Maxwell's equations are solved using an explicit,
+/// second-order finite-difference time-domain (FDTD) method.
+/// The timestep can therefore be, at most, dx / c, where
+/// dx is the grid spacing and c the speed of light.
+/// 
+/// Each Grid stores a ghost zone for the Grid to its left
+/// and right, which must be synchronized before the
+/// field advance.
 pub struct YeeGrid {
     id: i32,
     ngrids: i32,
@@ -104,19 +281,19 @@ pub struct YeeGrid {
 }
 
 impl Grid for YeeGrid {
-    fn new(comm: impl Communicator, geometry: Geometry, left: Boundary) -> Self {
-        let id = comm.rank();
-        let numtasks = comm.size();
+    fn build(geometry: GridDesign) -> Self {
+        let id = geometry.id;
+        let numtasks = geometry.numtasks;
         let ncells = geometry.nx[id as usize];
         let offset = geometry.offset[id as usize];
 
-        let (left_bdy, left_bdy_size) = if id == 0 && left == Boundary::Laser {
+        let (left_bdy, left_bdy_size) = if id == 0 && geometry.left == Boundary::Laser {
             (Boundary::Laser, LASER_BDY_SIZE)
         } else {
             (Boundary::Internal, GHOST_SIZE)
         };
 
-        let (right_bdy, right_bdy_size) = if id == numtasks-1 && left == Boundary::Laser {
+        let (right_bdy, right_bdy_size) = if id == numtasks-1 && geometry.left == Boundary::Laser {
             (Boundary::Absorbing, ABSORBING_BDY_SIZE)
         } else {
             (Boundary::Internal, GHOST_SIZE)
@@ -305,27 +482,27 @@ impl Grid for YeeGrid {
         assert!(j < self.cell.len() - (self.right_bdy_size as usize));
 
         let E = [
-            self.cell[j-1].E[0] * Self::weight(0.5 + xi)
-            + self.cell[j].E[0] * Self::weight(0.5 - xi)
-            + self.cell[j+1].E[0] * Self::weight(1.5 - xi),
-            self.cell[j-1].E[1] * Self::weight(1.0 + xi)
-            + self.cell[j].E[1] * Self::weight(xi)
-            + self.cell[j+1].E[1] * Self::weight(1.0 - xi)
-            + self.cell[j+2].E[1] * Self::weight(2.0 - xi),
-            self.cell[j-1].E[2] * Self::weight(1.0 + xi)
-            + self.cell[j].E[2] * Self::weight(xi)
-            + self.cell[j+1].E[2] * Self::weight(1.0 - xi)
-            + self.cell[j+2].E[2] * Self::weight(2.0 - xi)
+            self.cell[j-1].E[0] * Cell::weight(0.5 + xi)
+            + self.cell[j].E[0] * Cell::weight(0.5 - xi)
+            + self.cell[j+1].E[0] * Cell::weight(1.5 - xi),
+            self.cell[j-1].E[1] * Cell::weight(1.0 + xi)
+            + self.cell[j].E[1] * Cell::weight(xi)
+            + self.cell[j+1].E[1] * Cell::weight(1.0 - xi)
+            + self.cell[j+2].E[1] * Cell::weight(2.0 - xi),
+            self.cell[j-1].E[2] * Cell::weight(1.0 + xi)
+            + self.cell[j].E[2] * Cell::weight(xi)
+            + self.cell[j+1].E[2] * Cell::weight(1.0 - xi)
+            + self.cell[j+2].E[2] * Cell::weight(2.0 - xi)
         ];
 
         let B = [
             self.cell[j].B[0],
-            self.cell[j-1].B[1] * Self::weight(0.5 + xi)
-            + self.cell[j].B[1] * Self::weight(0.5 - xi)
-            + self.cell[j+1].B[1] * Self::weight(1.5 - xi),
-            self.cell[j-1].B[2] * Self::weight(0.5 + xi)
-            + self.cell[j].B[2] * Self::weight(0.5 - xi)
-            + self.cell[j+1].B[2] * Self::weight(1.5 - xi)
+            self.cell[j-1].B[1] * Cell::weight(0.5 + xi)
+            + self.cell[j].B[1] * Cell::weight(0.5 - xi)
+            + self.cell[j+1].B[1] * Cell::weight(1.5 - xi),
+            self.cell[j-1].B[2] * Cell::weight(0.5 + xi)
+            + self.cell[j].B[2] * Cell::weight(0.5 - xi)
+            + self.cell[j+1].B[2] * Cell::weight(1.5 - xi)
         ];
 
         (E, B)
@@ -343,108 +520,6 @@ impl Grid for YeeGrid {
         self.size
     }
 
-    /*------------------------------------------------------------------------------------
-
-    Weighting function to map grid point values to the particle.
-
-                        |     xhat
-                        |<------------>|
-                      1 .       .------|------.
-                      .'|`.     |      |      |
-                    .'  |  `.   |      |      |
-                  .'    |    `. |      |      |
-                .'      |      `.      |      |
-              .'        |       |`.    |      |
-            .'          |       |XX`.  |      |
-      <----|------------|-------|----|-|------|----> x / dx
-           -1           0            1
-
-    xhat is the distance from the particle centre to a point on the grid, measured
-    in units of the grid spacing. The weight associated with that point is given
-    by weight(xhat), which is non-zero for 0 < xhat < 3/2. The sum of all the weights
-    of grid points within 3/2 of the particle centre is 1.
-
-    Grid points have shape defined by a b-spline of order 0 i.e. a top-hat of
-    total width dx. Particles have shape defined by a b-spline of order 1, i.e.
-    a triangle with total width 2 dx.
-
-    By the definition of b-splines, the interpolation function, i.e. the
-    convolution of these shapes, is a b-spline of order 2.
-
-    ------------------------------------------------------------------------------------*/
-
-    fn weight(xi: f64) -> f64 {
-        let xhat = xi.abs();
-        if xhat > 1.5 {
-            return 0.0;
-        } else if xhat < 0.5 {
-            return 0.75 - xhat.powi(2);
-        } else {
-            return 1.125 - 1.5 * xhat + 0.5 * xhat.powi(2);
-        }
-    }
-
-    /*------------------------------------------------------------------------------------
-
-    particle_flux gives the `amount' of particle that has flowed through an
-    imaginary boundary whose displacement from the particle centre is initially
-    x_i and finally x_f.
-
-    The magnitude of that flux is given by the shaded region pictured here:
-
-                        |
-                        .
-                      .'|`. |<--| movement of boundary
-                    .'  |  `.
-                  .'    |   |`.
-                .'      |   |XX`.
-              .'        |   |XXX|`.
-            .'          |   |XXX|  `.
-      <----|------------|---|---|----|----> x / dx
-           -1           0   |   |    1
-                           x_f x_i
-
-    NB: We assume that the boundary moves less than dx i.e. x_i - x_f < dx
-
-    We use the following sign conventions:
-
-    x := x_bdy - x_pt i.e. if the particle is to the *left* of the boundary
-                           the initial distance is considered positive.
- 
-    If x_i > x_f, the particle is moving across the boundary from left to right
-    and the flux is considered positive.
-
-    This function exactly conserves particle weight, i.e.
-
-        delta W(x)  = - flux (x - 1/2) + flux (x + 1/2)
-
-    where W is the weight of the particle at the point midway between the two
-    boundaries.
-
-    ------------------------------------------------------------------------------------*/
-
-    fn flux(x_i: f64, x_f: f64) -> f64 {
-        if x_i.abs() < 1.0 {
-            if x_f.abs() >= 1.0 {
-                let v = 0.5 * (1.0 - x_i.abs()).powi(2);
-                v.copysign(-x_i)
-            } else if x_i * x_f >= 0.0 { // x_i and x_f have the same sign
-                let v = 0.5 * (1.0 - x_f.abs()).powi(2) - 0.5 * (1.0 - x_i.abs()).powi(2);
-                v.copysign(x_i - x_f)
-            } else { // x_i and x_f have different signs
-                let v = x_i.abs() * (1.0 - 0.5 * x_i.abs()) + x_f.abs() * (1.0 - 0.5 * x_f.abs());
-                v.copysign(x_i)
-            }
-        }
-        else if x_f.abs() < 1.0 { // and |x_i| >= 1.0
-            let v = 0.5 * (1.0 - x_f.abs()).powi(2);
-            v.copysign(x_f)
-        } else { // both x_i and x_f outside particle
-            0.0
-        }
-    }
-
-    // Wipe all charges and currents
     fn clear(&mut self) {
         //use ndarray::parallel::prelude::*;
         self.cell.par_map_inplace(|c| {
@@ -486,32 +561,32 @@ impl Grid for YeeGrid {
                     /* current density = charge * amount of particle / (area * dt)
                        [Cells have unit cross-sectional area in x-direction.] */
     
-                    j[index  ][0] += macrocharge * Self::flux( 0.5 - prev_x,  0.5 - x) / dt;
-                    j[index-1][0] += macrocharge * Self::flux(-0.5 - prev_x, -0.5 - x) / dt;
-                    j[index-2][0] += macrocharge * Self::flux(-1.5 - prev_x, -1.5 - x) / dt;
-                    j[index+1][0] += macrocharge * Self::flux( 1.5 - prev_x,  1.5 - x) / dt;
-                    j[index+2][0] += macrocharge * Self::flux( 2.5 - prev_x,  2.5 - x) / dt;
+                    j[index  ][0] += macrocharge * Cell::flux( 0.5 - prev_x,  0.5 - x) / dt;
+                    j[index-1][0] += macrocharge * Cell::flux(-0.5 - prev_x, -0.5 - x) / dt;
+                    j[index-2][0] += macrocharge * Cell::flux(-1.5 - prev_x, -1.5 - x) / dt;
+                    j[index+1][0] += macrocharge * Cell::flux( 1.5 - prev_x,  1.5 - x) / dt;
+                    j[index+2][0] += macrocharge * Cell::flux( 2.5 - prev_x,  2.5 - x) / dt;
     
                     /* In y- and z-directions, just weight the perpendicular current
                        density j_perp:
                        j_perp = charge * velocity / (area * dx) */
     
-                    j[index-1][1] += macrocharge * velocity[1] * Self::weight(1.0 + x) / dx;
-                    j[index  ][1] += macrocharge * velocity[1] * Self::weight(      x) / dx;
-                    j[index+1][1] += macrocharge * velocity[1] * Self::weight(1.0 - x) / dx;
-                    j[index+2][1] += macrocharge * velocity[1] * Self::weight(2.0 + x) / dx;
+                    j[index-1][1] += macrocharge * velocity[1] * Cell::weight(1.0 + x) / dx;
+                    j[index  ][1] += macrocharge * velocity[1] * Cell::weight(      x) / dx;
+                    j[index+1][1] += macrocharge * velocity[1] * Cell::weight(1.0 - x) / dx;
+                    j[index+2][1] += macrocharge * velocity[1] * Cell::weight(2.0 + x) / dx;
     
-                    j[index-1][2] += macrocharge * velocity[2] * Self::weight(1.0 + x) / dx;
-                    j[index  ][2] += macrocharge * velocity[2] * Self::weight(      x) / dx;
-                    j[index+1][2] += macrocharge * velocity[2] * Self::weight(1.0 - x) / dx;
-                    j[index+2][2] += macrocharge * velocity[2] * Self::weight(2.0 + x) / dx;
+                    j[index-1][2] += macrocharge * velocity[2] * Cell::weight(1.0 + x) / dx;
+                    j[index  ][2] += macrocharge * velocity[2] * Cell::weight(      x) / dx;
+                    j[index+1][2] += macrocharge * velocity[2] * Cell::weight(1.0 - x) / dx;
+                    j[index+2][2] += macrocharge * velocity[2] * Cell::weight(2.0 + x) / dx;
 
                     /* Charge density = macrocharge / (cell_area * dx) */
 
-                    j[index-1][3] += macrocharge * Self::weight(1.0 + x) / dx;
-                    j[index  ][3] += macrocharge * Self::weight(      x) / dx;
-                    j[index+1][3] += macrocharge * Self::weight(1.0 - x) / dx;
-                    j[index-2][3] += macrocharge * Self::weight(2.0 - x) / dx;
+                    j[index-1][3] += macrocharge * Cell::weight(1.0 + x) / dx;
+                    j[index  ][3] += macrocharge * Cell::weight(      x) / dx;
+                    j[index+1][3] += macrocharge * Cell::weight(1.0 - x) / dx;
+                    j[index-2][3] += macrocharge * Cell::weight(2.0 - x) / dx;
                 });
                 j
             })
@@ -736,11 +811,7 @@ impl YeeGrid {
         intrp
     }
 
-    /// Advance the magnetic fields components in time.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `dt` - The time interval to advance over.
+    /// Advance the magnetic fields components over an interval `dt`.
     #[allow(non_snake_case)]
     fn advance_B(&mut self, dt: f64) {
         let start: usize = 0;
@@ -753,11 +824,7 @@ impl YeeGrid {
         }
     }
 
-    /// Advance the electric fields components in time.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `dt` - The time interval to advance over.
+    /// Advance the electric fields components over an interval `dt`.
     #[allow(non_snake_case)]
     fn advance_E(&mut self, dt: f64) {
         let start: usize = 1;
@@ -769,63 +836,3 @@ impl YeeGrid {
         }
     }
 }
-
-/*------------------------------------------------------------------------------------
-
-  Call in this order:
-    - output (E, B and particle positions at t = 0)
-    - map to particle, push
-    - deposit currents, synchronize grid
-    - half B advance
-    - full E advance
-    - half B advance
-
-  Why? These are the times at which quantities are stored on the grid.
-  For the field-mapping stage, we need only the cells [-1] to [n+1].
-
-    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
-  --|-------------------------|------- - - - --------|-------------------------|
-  J |                         |                      |                         |
-  B |                     0   |   0              0   |   0     0               |
-  E |                     0   |   0              0   |   0     0               |
-
-  The push advances positions from 0 to 1, and velocities from -1/2 to 1/2.
-  Following push, current deposition and synchronization, everything is aligned
-
-    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
-  --|-------------------------|------- - - - --------|-------------------------|
-  J |  1/2   1/2   1/2   1/2  |                      |  1/2   1/2   1/2   1/2  |
-  B |   0     0     0     0   |   0              0   |   0     0     0     0   |
-  E |   0     0     0     0   |   0              0   |   0     0     0     0   |
-
-  Advance B by half a step in all cells [-4] to [n+2]. This requires E at t = 0
-  locally and in the cell to the right:
-
-    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
-  --|-------------------------|------- - - - --------|-------------------------|
-  J |  1/2   1/2   1/2   1/2  |                      |  1/2   1/2   1/2   1/2  |
-  B |  1/2   1/2   1/2   1/2  |  1/2            1/2  |  1/2   1/2   1/2    0   |
-  E |   0     0     0     0   |   0              0   |   0     0     0     0   |
-
-  Then advance E by a full step in cells [-3] to [n+3]. This requires j and B
-  at t = 1/2 locally and in the cell to the left. An error is made in [n+3].
-
-    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
-  --|-------------------------|------- - - - --------|-------------------------|
-  J |  1/2   1/2   1/2   1/2  |                      |  1/2   1/2   1/2   1/2  |
-  B |  1/2   1/2   1/2   1/2  |  1/2            1/2  |  1/2   1/2   1/2    0   |
-  E |   0     1     1     1   |   1              1   |   1     1     1     E   |
-
-  Now finish the B advance in cells [-4] to [n+2]. This requires E at t = 1
-  locally and in the cell to the right.
-
-    | [-4]  [-3]  [-2]  [-1]  |  [0]           [n-1] |  [n]  [n+1] [n+2] [n+3] |
-  --|-------------------------|------- - - - --------|-------------------------|
-  J |  1/2   1/2   1/2   1/2  |                      |  1/2   1/2   1/2   1/2  |
-  B |   E     1     1     1   |   1              1   |   1     1     E     0   |
-  E |   0     1     1     1   |   1              1   |   1     1     1     E   |
-
-  Cells containing E are incorrect, but when the loop repeats, these are
-  overwritten by the synchronization.
-
-------------------------------------------------------------------------------------*/

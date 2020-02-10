@@ -1,8 +1,11 @@
 [package]
 name = "opal"
-version = "0.1.0"
-authors = ["blackburn"]
+version = "1.0.0"
+authors = ["tgblackburn"]
 edition = "2018"
+publish = false
+readme = "README.md"
+license = "MIT"
 
 [dependencies]
 mpi = "0.5"

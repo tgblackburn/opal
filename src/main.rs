@@ -131,14 +131,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let laser_z = input.func2("laser", "Ez", ["t", "x"])?;
     let min_size = YeeGrid::min_size();
 
-    let geometry = if balance {
+    let design = if balance {
         let ne = input.func("electrons", "ne", "x")?;
-        Geometry::balanced(world, nx, xmin, dx, min_size, &ne)
+        GridDesign::balanced(world, nx, xmin, dx, min_size, Boundary::Laser, &ne)
     } else {
-        Geometry::unbalanced(world, nx, xmin, dx, min_size)
+        GridDesign::unbalanced(world, nx, xmin, dx, min_size, Boundary::Laser)
     };
 
-    let mut grid = YeeGrid::new(world, geometry, Boundary::Laser);
+    let mut grid = YeeGrid::build(design);
 
     // Particle initialization
 
