@@ -184,22 +184,15 @@ impl Particle for Electron {
 
 #[allow(unused)]
 impl Electron {
-    pub fn gamma(&self) -> f64 {
-        self.gamma
-    }
-
-    pub fn u(&self) -> Vec3 {
-        self.u
-    }
-
-    pub fn x(&self) -> f64 {
-        self.x
-    }
-
-    pub fn work(&self) -> f64 {
-        self.work
-    }
-
+    /// If the electron optical depth has fallen below zero,
+    /// emit a photon, recoil, and reset the optical depth.
+    /// 
+    /// Returns the photon and its estimated formation length
+    /// (in metres), if emission has taken place.
+    /// 
+    /// The photon momentum is sampled from the relevant
+    /// synchrotron spectrum using the supplied pseudorandom
+    /// number generator.
     pub fn radiate<R: Rng>(&mut self, rng: &mut R, t: f64) -> Option<(Photon, f64)> {
         if self.tau < 0.0 {
             // reset optical depth against emission
@@ -245,6 +238,8 @@ impl Electron {
         }
     }
 
+    /// Modifies the electron momentum by absorbing the specified
+    /// photon.
     pub fn absorb(&mut self, photon: &Photon) {
         let k = photon.momentum(); // in units of MeV
         let scale = photon.weight() / self.weight;
@@ -322,6 +317,8 @@ impl Electron {
         self.x -= floor;
     }
 
+    /// Advances the particle momentum and position using
+    /// the Boris push.
     #[allow(non_snake_case)]
     pub fn boris_push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64) {
         let E = Vec3::new_from_slice(E);
@@ -404,7 +401,7 @@ mod tests {
         println!("Expected {:?}", target);
         println!("Got {:?}", e);
         println!("Work done / (mc^2) = {}", e.work() / (ELECTRON_MASS * SPEED_OF_LIGHT_SQD));
-        assert!( (e.gamma() - target.gamma()) / target.gamma() < 1.0e-6 )
+        assert!( (e.gamma - target.gamma) / target.gamma < 1.0e-6 )
         //assert!( e.x().abs() < 1.0e-2 * r_c )
     }
 
@@ -420,9 +417,9 @@ mod tests {
             e.push(&[e0, 0.0, 0.0], &[0.0, 0.0, 0.0], 1.0, dt);
         }
         let target = (1.0 + (ELECTRON_CHARGE * e0 * 1.0e-7 / (ELECTRON_MASS * SPEED_OF_LIGHT)).powi(2)).sqrt();
-        println!("Expected gamma = {}, got {}", target, e.gamma());
+        println!("Expected gamma = {}, got {}", target, e.gamma);
         println!("{:?}", e);
         println!("Work done / (mc^2) = {}", e.work() / (ELECTRON_MASS * SPEED_OF_LIGHT_SQD));
-        assert!( (e.gamma() - target) / target < 1.0e-6 )
+        assert!( (e.gamma - target) / target < 1.0e-6 )
     }
 }
