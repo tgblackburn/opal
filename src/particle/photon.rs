@@ -232,18 +232,24 @@ impl Particle for Photon {
 
 #[allow(unused)]
 impl Photon {
+    /// Specifies the time at which the photon is to be created.
+    /// Should be called immediately after Photon::create.
     pub fn at_time(&self, t: f64) -> Self {
         let mut pt = *self;
         pt.birth_time = t;
         pt
     }
 
+    /// Returns the time at which the photon was created.
     pub fn birth_time(&self) -> f64 {
         self.birth_time
     }
 
+    /// Specifies that the photon is linearly polarized
+    /// along the specified direction `dir` (which does not
+    /// have to be normalized).
     pub fn with_polarization_along(&self, dir: [f64; 3]) -> Self {
-        let mut pt = self.clone();
+        let mut pt = *self;
         // k, basis[0] and basis[1] form a right-handed triad
         pt.basis[0] = Vec3::new(dir[0], dir[1], dir[2]).normalize();
         pt.basis[1] = pt.k.cross(pt.basis[0]).normalize();
@@ -253,20 +259,33 @@ impl Photon {
         pt
     }
 
+    /// The component of the photon polarization along `dir`,
+    /// mod-squared.
     pub fn linear_polarization_along(&self, dir: [f64; 3]) -> f64 {
         let dir = Vec3::new_from_slice(&dir).normalize();
         let amplitude = self.pol[0] * (dir * self.basis[0]) + self.pol[1] * (dir * self.basis[1]);
         amplitude.norm_sqr()
     }
 
-    // defined with respect to its propagation direction k
-    // recall e_pm = (e_1 \pm i e_2) / sqrt(2)
-    // so a_+ = (a_1 - i a_2) / sqrt(2)
+    /// Returns the helicity of the photon, which is defined
+    /// with respect to its propagation direction k: recall that
+    /// e_pm = (e_1 \pm i e_2) / sqrt(2), so a_+ = (a_1 - i a_2) / sqrt(2).
     pub fn helicity(&self) -> f64 {
         let amplitude = (self.pol[0] - Complex::new(0.0, 1.0) * self.pol[1]) / 2.0f64.sqrt();
         amplitude.norm_sqr()
     }
 
+    /// Calculates the probability that the photon is absorbed by the
+    /// specified electron, and reduces the photon optical depth
+    /// against absorption by that amount.
+    /// 
+    /// `dt` is the simulation timestep and therefore the interaction
+    /// time; `dx` is the grid spacing and assumed to be the physical
+    /// size of both the macrophoton and macroelectron, i.e. the
+    /// interaction volume V = dx * A, where A is 1 m^2.
+    /// 
+    /// If the photon optical depth falls below zero, return `true`,
+    /// as absorption is deemed to occur for this electron.
     pub fn is_absorbed_by(&mut self, e: &Electron, dt: f64, dx: f64) -> bool {
         let k = self.normalized_four_momentum();
         let p = e.normalized_four_momentum();
