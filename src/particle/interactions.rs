@@ -6,6 +6,42 @@ use rand_xoshiro::Xoshiro256StarStar;
 use crate::constants::*;
 use super::{Population, Particle, Electron, Photon};
 
+/// Implements radiation reaction, i.e. the recoil experienced by an
+/// electron when it emits a photon.
+/// 
+/// By default, this samples the angularly resolved quantum synchrotron
+/// spectrum and therefore recoil occurs stochastically.
+/// These behaviours can be altered by compiling opal with
+/// the features "no_beaming" (which disables the angular sampling)
+/// and/or "no_radiation_reaction" (which disables the recoil and
+/// switches to the classical emission spectrum).
+/// 
+/// # Arguments
+/// - `e`: the population of radiating electrons.
+/// 
+/// - `ph`: the population to add newly created photons to.
+/// 
+/// - `rng`: in threaded mode, each thread clones the supplied rng
+/// and jumps forward by different amounts; a long jump is performed
+/// by the main thread before `emit_radiation` returns.
+/// 
+/// - `t`: photons record the time they were created, so this needs
+/// to be supplied.
+/// 
+/// - `min_energy`: while photons of all energies are created and
+/// cause recoil, they are only added to `ph` if their energy exceeds
+/// this optional threshold (given in MeV).
+/// 
+/// - `max_angle`: similarly, it is sometimes useful to record only
+/// those photons with polar angle smaller than a certain limit;
+/// the angle here is measured w.r.t. the *negative* x-axis.
+/// 
+/// - `max_formation_length`: the formation length is estimated
+/// for all photons, whether "no_beaming" is specified or not,
+/// using their angle of emission and the parent electron's
+/// instantaneous radius of curvature; if enabled, only photons
+/// with a formation length smaller than this value are written
+/// to `ph`.
 pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, t: f64, min_energy: Option<f64>, max_angle: Option<f64>, max_formation_length: Option<f64>) {
     let ne = e.store.len();
     let nthreads = rayon::current_num_threads();
@@ -70,6 +106,41 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
     ph.store.extend_from_slice(&emitted[..]);
 }
 
+/// Implements one-photon absorption, i.e. the time reversal of photon emission.
+/// 
+/// # Requirements
+/// 
+/// This function assumes that both populations have been sorted into
+/// ascending order by cell index. This is the case if called directly
+/// after the particle push.
+/// 
+/// The photon population will *not* be sorted afterwards, if any
+/// absorption has taken place and therefore photons have been deleted.
+/// The electron order is unchanged.
+/// 
+/// # Arguments
+/// - `e`: the electron population doing the absorbing.
+/// 
+/// - `ph`: the population of photons that are to be absorbed.
+/// 
+/// - `t`: absorption can be disabled for photons after a specified interval
+/// has elapsed since their creation, so the current simulation time needs to
+/// be supplied.
+/// 
+/// - `dt`: simulation timestep.
+/// 
+/// - `xmin`: left-hand boundary of the local subdomain: as particles record
+/// only their offset from this position, calculating the photon position
+/// when "extra_absorption_output" is enabled requires this to be passed.
+/// 
+/// - `dx`: grid spacing, passed for the same reason as `xmin`.
+/// 
+/// - `max_displacement`: if enabled, disable absorption for photons that
+/// have travelled a perpendicular distance greater than this value,
+/// since their creation. Mimics a finite focal spot size.
+/// 
+/// - `stop_time`: if enabled, disable absorption for photons after
+/// the specified interval has elapsed since their creation.
 #[allow(unused)]
 pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64, dt: f64, xmin: f64, dx: f64, max_displacement: Option<f64>, stop_time: Option<f64>) {
     const PHOTON_E_ECRIT_CUTOFF: f64 = 1.0e-8;
