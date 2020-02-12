@@ -836,3 +836,56 @@ impl YeeGrid {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::f64::consts;
+    use super::*;
+
+    #[test]
+    fn laser_in_vacuum() {
+        let universe = mpi::initialize().unwrap();
+        let world = universe.world();
+
+        let xmin = -10.0e-6;
+        let dx = 1.0e-6 / 100.0;
+        let mut t = -15.0e-6 / SPEED_OF_LIGHT;
+        let dt = 0.95 * dx / SPEED_OF_LIGHT;
+        let nsteps: usize = (t.abs() / dt) as usize; // end at t = 0
+
+        let omega = 2.0 * consts::PI * SPEED_OF_LIGHT / 1.0e-6;
+        let emax = 1.0e10;
+        let laser_y = |t: f64, z: f64| {
+            let phi = omega * (t - z / SPEED_OF_LIGHT);
+            if phi.abs() < 8.0 * consts::PI {
+                emax * phi.sin() * (phi/16.0).cos().powi(2)
+            } else {
+                0.0
+            }
+        };
+        let laser_z = |_t, _z| {0.0};
+
+        let design = GridDesign::unbalanced(world, 2000, xmin, dx, YeeGrid::min_size(), Boundary::Laser);
+        let mut grid = YeeGrid::build(design);
+
+        for _i in 0..=nsteps {
+            grid.synchronize(world, &laser_y, &laser_z, t);
+            grid.advance(dt);
+            t += dt;
+        }
+
+        let (e, _) = grid.fields_at(1000 + 25, 0.0); // x = lambda/4
+        println!("x = lambda/4: ey/e0 = {:.6e}, expected = {:.6e}", e[1]/emax, -(consts::PI/32.0).cos().powi(2));
+
+        let (e, _) = grid.fields_at(1000 + 125, 0.0); // x = 5 lambda/4
+        println!("x = 5 lambda/4: ey/e0 = {:.6e}, expected = {:.6e}", e[1]/emax, -(5.0*consts::PI/32.0).cos().powi(2));
+
+        let em_energy = grid.em_field_energy(&world);
+        // total energy = epsilon_0 A \int |E|^2 dx
+        // E = E_0 sin(k x) cos(k x/16) at t = 0 for |k x| < 8 pi
+        let target = VACUUM_PERMITTIVITY * emax.powi(2) * (3.0 * consts::PI * SPEED_OF_LIGHT / omega);
+
+        println!("t = {:.3e}, em_energy = {:.6e}, expected = {:.6e}", t, em_energy, target);
+        assert!( (em_energy - target).abs() / target < 1.0e-3);
+    }
+}
