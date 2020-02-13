@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::fmt;
 
 use mpi::traits::*;
 use mpi::Threading;
@@ -20,48 +19,6 @@ mod setup;
 use setup::*;
 
 mod qed;
-
-#[rustversion::since(1.38)]
-fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
-    let rt = start.elapsed().as_secs_f64();
-    let ettc = rt * ((total - current) as f64) / (current as f64);
-    std::time::Duration::from_secs_f64(ettc)
-}
-
-#[rustversion::before(1.38)]
-fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
-    let rt = start.elapsed();
-    let rt = (rt.as_secs() as f64) + (rt.subsec_nanos() as f64) * 1.0e-9;
-    let ettc = rt * ((total - current) as f64) / (current as f64);
-    std::time::Duration::from_secs(ettc as u64)
-}
-
-struct PrettyDuration {
-    pub duration: std::time::Duration,
-}
-
-impl From<std::time::Duration> for PrettyDuration {
-    fn from(duration: std::time::Duration) -> PrettyDuration {
-        PrettyDuration {duration: duration}
-    }
-}
-
-impl fmt::Display for PrettyDuration {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut t = self.duration.as_secs();
-        let s = t % 60;
-        t /= 60;
-        let min = t % 60;
-        t /= 60;
-        let hr = t % 24;
-        let d = t / 24;
-        if d > 0 {
-            write!(f, "{}d {:02}:{:02}:{:02}", d, hr, min, s)
-        } else {
-            write!(f, "{:02}:{:02}:{:02}", hr, min, s)
-        }
-    }
-}
 
 fn write_energies(world: &impl Communicator, dir: &str, index: usize, grid: &impl Grid, electrons: &Population<Electron>, ions: &Population<Ion>, photons: &Population<Photon>) -> std::io::Result<()> {
     use std::fs::File;

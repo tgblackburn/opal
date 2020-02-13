@@ -1,3 +1,5 @@
+//! Utilities for dealing with three-vectors (x,y,z)
+
 use std::fmt;
 
 use mpi::traits::*;

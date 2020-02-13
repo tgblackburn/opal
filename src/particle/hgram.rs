@@ -1,3 +1,5 @@
+//! MPI-aware data binning and histogram generation
+
 use std::fmt;
 use mpi::traits::*;
 use mpi::collective::SystemOperation;

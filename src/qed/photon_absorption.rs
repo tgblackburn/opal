@@ -1,3 +1,5 @@
+//! One-photon absorption: gamma + e -> e in a background field
+
 use std::f64::consts;
 use libc::{c_int, c_double, c_char};
 
@@ -19,8 +21,8 @@ struct gsl_result {
     err: f64,
 }
 
-// A C function pointer, and therefore nullable.
-// In the latter case, None is treated as NULL.
+/// A C function pointer, and therefore nullable.
+/// In the latter case, None is treated as NULL.
 type GslErrorHandler = Option<extern "C" fn(*const c_char, *const c_char, c_int, c_int)>;
 
 #[link(name = "gsl")]
@@ -31,6 +33,7 @@ extern {
     fn gsl_set_error_handler(handler: GslErrorHandler) -> GslErrorHandler;
 }
 
+/// Returns the Airy function (of the first kind) Ai(x)
 fn airy_ai(z: f64) -> Option<f64> {
     let mode = gsl_mode::PrecDouble;
     let mut result = gsl_result {val: 0.0, err: 0.0};
@@ -44,12 +47,17 @@ fn airy_ai(z: f64) -> Option<f64> {
     }
 }
 
+/// Default behaviour of the GSL is to abort when an error is
+/// encountered, such as overflow or underflow.
+/// Turn this off and handle errors ourselves.
 pub fn disable_gsl_abort_on_error() {
     unsafe {
         gsl_set_error_handler_off();
     }
 }
 
+/// Restores default behaviour of the GSL, which is to abort when an error is
+/// encountered.
 #[allow(unused)]
 pub fn enable_gsl_abort_on_error() {
     unsafe {

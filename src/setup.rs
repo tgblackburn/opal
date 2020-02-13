@@ -1,3 +1,5 @@
+//! Parse input configuration file
+
 use std::fmt;
 use std::error::Error;
 use std::path::Path;
@@ -33,6 +35,8 @@ impl fmt::Display for InputError {
 
 impl Error for InputError {}
 
+/// Represents the input configuration, can be queried
+/// for desired parameters
 pub struct Configuration<'a> {
     input: Yaml,
     ctx: Context<'a>,
@@ -208,113 +212,44 @@ impl<'a> Configuration<'a> {
     }
 }
 
-/*
-pub fn read_evaluate<C: meval::ContextProvider>(input: &Yaml, section: &str, field: &str, ctx: &C) -> Result<f64,InputError> {
-    let name = field.to_owned();
-    match &input[section][field] {
-        Yaml::Real(s) => s.parse::<f64>().map_err(|_| InputError::CouldNotParse(name.clone(), s.clone())),
-        //Yaml::String(s) => s.parse::<meval::Expr>()?.eval_with_context(default_ctx),
-        Yaml::String(s) => {
-            let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(name.clone(), s.clone()))?; // Result<f64,meval:;err>
-            expr.eval_with_context(ctx).map_err(|_| InputError::CouldNotParse(name.clone(), s.clone()))
-        },
-        _ => Err(InputError::MissingField(name)),
-    }  
+#[rustversion::since(1.38)]
+pub fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
+    let rt = start.elapsed().as_secs_f64();
+    let ettc = rt * ((total - current) as f64) / (current as f64);
+    std::time::Duration::from_secs_f64(ettc)
 }
 
-pub fn read_func1<'a, C: meval::ContextProvider>(input: &Yaml, section: &str, field: &str, arg: &str, ctx: &'a C) -> Result<impl Fn(f64) -> f64 + 'a,InputError> {
-    match &input[section][field] {
-        Yaml::String(s) | Yaml::Real(s) => {
-            let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
-            expr.bind_with_context(ctx, arg).map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))
-        },
-        _ => Err(InputError::MissingField(field.to_owned()))
+#[rustversion::before(1.38)]
+pub fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
+    let rt = start.elapsed();
+    let rt = (rt.as_secs() as f64) + (rt.subsec_nanos() as f64) * 1.0e-9;
+    let ettc = rt * ((total - current) as f64) / (current as f64);
+    std::time::Duration::from_secs(ettc as u64)
+}
+
+pub struct PrettyDuration {
+    pub duration: std::time::Duration,
+}
+
+impl From<std::time::Duration> for PrettyDuration {
+    fn from(duration: std::time::Duration) -> PrettyDuration {
+        PrettyDuration {duration: duration}
     }
 }
 
-pub fn read_func2<'a, C: meval::ContextProvider>(input: &Yaml, section: &str, field: &str, args: [&str; 2], ctx: &'a C) -> Result<impl Fn(f64, f64) -> f64 + 'a,InputError> {
-    match &input[section][field] {
-        Yaml::String(s) | Yaml::Real(s) => {
-            let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
-            expr.bind2_with_context(ctx, args[0], args[1]).map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))
-        },
-        _ => Err(InputError::MissingField(field.to_owned()))
-    }
-}
-
-pub fn read_func3<'a, C: meval::ContextProvider>(input: &Yaml, section: &str, field: &str, args: [&str; 3], ctx: &'a C) -> Result<impl Fn(f64, f64, f64) -> f64 + 'a,InputError> {
-    match &input[section][field] {
-        Yaml::String(s) | Yaml::Real(s) => {
-            let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
-            expr.bind3_with_context(ctx, args[0], args[1], args[2]).map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))
-        },
-        _ => Err(InputError::MissingField(field.to_owned()))
-    }
-}
-
-pub fn read_integer(input: &Yaml, section: &str, field: &str) -> Result<i64,InputError> {
-    match &input[section][field] {
-        Yaml::Integer(i) => Ok(*i),
-        _ => Err(InputError::MissingField(field.to_owned())),
-    }
-}
-
-pub fn read_bool(input: &Yaml, section: &str, field: &str) -> Result<bool,InputError> {
-    match &input[section][field] {
-        Yaml::Boolean(b) => Ok(*b),
-        _ => Err(InputError::MissingField(field.to_owned())),
-    }
-}
-
-pub fn read_strings(input: &Yaml, section: &str, field: &str) -> Result<Vec<String>, InputError> {
-    let name = field.to_owned();
-    match &input[section][field] {
-        Yaml::String(s) => {
-            Ok(vec![s.clone()])
-        },
-        Yaml::Array(array) => {
-            // a is a vec of Vec<Yaml>
-            let take_yaml_string = |y: &Yaml| -> Option<String> {
-                match y {
-                    Yaml::String(s) => Some(s.clone()),
-                    _ => None
-                }
-            };
-            let got: Vec<String> = array.iter().filter_map(take_yaml_string).collect();
-            if got.is_empty() {
-                Err(InputError::CouldNotParse(section.to_owned(), name))
-            } else {
-                Ok(got)
-            }
-        },
-        _ => Err(InputError::MissingField(name))
-    }
-}
-
-pub fn read_string(input: &Yaml, section: &str, field: &str) -> Result<String, InputError> {
-    let strs = read_strings(input, section, field)?;
-    //let str = strs.first().ok_or(InputError::MissingField(field.to_owned()))?;
-    //str.clone()
-    Ok(strs[0].clone())
-}
-
-// return a result type for error handling
-pub fn read_to_context(input: &Yaml, section: &str, ctx: &mut meval::Context) {
-    let tmp = ctx.clone();
-    //println!("{:?}", input["constants"].as_hash());
-    for (a, b) in input[section].as_hash().unwrap() {
-        //println!("{:?} {:?}", a, b);
-        match (a, b) {
-            (Yaml::String(s), Yaml::Real(v)) => {
-                if let Ok(num) = v.parse::<f64>() {ctx.var(s, num);}
-            },
-            (Yaml::String(s), Yaml::String(v)) => {
-                if let Ok(expr) = v.parse::<meval::Expr>() {
-                    if let Ok(num) = expr.eval_with_context(&tmp) {ctx.var(s, num);}
-                }
-            },
-            _ => ()
+impl fmt::Display for PrettyDuration {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut t = self.duration.as_secs();
+        let s = t % 60;
+        t /= 60;
+        let min = t % 60;
+        t /= 60;
+        let hr = t % 24;
+        let d = t / 24;
+        if d > 0 {
+            write!(f, "{}d {:02}:{:02}:{:02}", d, hr, min, s)
+        } else {
+            write!(f, "{:02}:{:02}:{:02}", hr, min, s)
         }
     }
 }
-*/
