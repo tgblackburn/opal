@@ -1,0 +1,49 @@
+---
+control:
+ dx: micro / 1000
+ nx: 20000
+ xmin: -10*micro
+ start: -20.0e-6/c
+ end: 10.0e-6/c
+ current_deposition: true
+ n_outputs: 30
+
+qed:
+ photon_emission: false
+ photon_absorption: false
+
+electrons:
+ npc: 100
+ ne: density * critical(omega) * step(x,xmin,xmax)
+ ux: sqrt(kT/(m*c^2)) * nrand
+ uy: sqrt(kT/(m*c^2)) * nrand
+ uz: sqrt(kT/(m*c^2)) * nrand
+ output: [x:px, x:p_perp, py:pz]
+
+ions:
+ name: carbon
+ npc: 100
+ Z: Z
+ A: A
+ ni: density * critical(omega) * step(x,xmin,xmax) / Z
+ ux: sqrt(kT/(A*mp*c^2)) * nrand
+ uy: sqrt(kT/(A*mp*c^2)) * nrand
+ uz: sqrt(kT/(A*mp*c^2)) * nrand
+ output: [x:px, x:p_perp, py:pz]
+
+laser:
+ Ey: (a0*me*c*omega/e) * gauss_pulse_re(t,x,omega,sigma)
+ Ez: (a0*me*c*omega/e) * gauss_pulse_im(t,x,omega,sigma)
+
+constants:
+ density: 100.0
+ a0: 300.0
+ omega: 2*pi*c/0.8e-6
+ sigma: pi * 4.0 / sqrt(ln(2.0))
+ xmin: 0.0 * micro
+ xmax: 5.0 * micro
+ Z: 6.0
+ A: 12.0
+ kT: 500 * eV
+
+
