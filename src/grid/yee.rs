@@ -252,6 +252,7 @@ unsafe impl Equivalence for Cell {
 const GHOST_SIZE: isize = 4;
 const LASER_BDY_SIZE: isize = 4;
 const ABSORBING_BDY_SIZE: isize = 200;
+const CONDUCTING_BDY_SIZE: isize = 4;
 
 /// YeeGrid discretizes the electromagnetic field and associated
 /// currents into a 1D Cartesian mesh of equally sized cells.
@@ -293,8 +294,12 @@ impl Grid for YeeGrid {
             (Boundary::Internal, GHOST_SIZE)
         };
 
-        let (right_bdy, right_bdy_size) = if id == numtasks-1 && geometry.left == Boundary::Laser {
-            (Boundary::Absorbing, ABSORBING_BDY_SIZE)
+        let (right_bdy, right_bdy_size) = if id == numtasks-1 {
+            match geometry.right {
+                Boundary::Absorbing => (Boundary::Absorbing, ABSORBING_BDY_SIZE),
+                Boundary::Conducting => (Boundary::Conducting, CONDUCTING_BDY_SIZE),
+                _ => (Boundary::Internal, GHOST_SIZE),
+            }
         } else {
             (Boundary::Internal, GHOST_SIZE)
         };
@@ -472,6 +477,21 @@ impl Grid for YeeGrid {
                 c.E = [0.0; 3];
                 c.B = [0.0; 3];
             });
+        } else if self.right_bdy == Boundary::Conducting {
+            let start: usize = self.cell.len() - (self.right_bdy_size as usize);
+            // handle first cell in ghost size, which is bisected by surface
+            self.cell[[start]].E[0] = 0.0;
+            self.cell[[start]].B[1] = 0.0;
+            self.cell[[start]].B[2] = 0.0;
+
+            for i in 1..(self.right_bdy_size as usize) {
+                self.cell[[start + i]].E[0] = -self.cell[[start - i]].E[0]; // clamp to zero at bdy
+                self.cell[[start + i]].E[1] = self.cell[[start + 1 - i]].E[1]; // zero_grad
+                self.cell[[start + i]].E[2] = self.cell[[start + 1 - i]].E[2]; // zero_grad
+                self.cell[[start + i]].B[0] = self.cell[[start + 1 - i]].B[0]; // zero_grad
+                self.cell[[start + i]].B[1] = -self.cell[[start - i]].B[1]; // clamp to zero at bdy
+                self.cell[[start + i]].B[2] = -self.cell[[start - i]].B[2]; // clamp to zero at bdy
+            }
         }
     }
 
@@ -865,7 +885,7 @@ mod tests {
         };
         let laser_z = |_t, _z| {0.0};
 
-        let design = GridDesign::unbalanced(world, 2000, xmin, dx, YeeGrid::min_size(), Boundary::Laser);
+        let design = GridDesign::unbalanced(world, 2000, xmin, dx, YeeGrid::min_size(), Boundary::Laser, Boundary::Absorbing);
         let mut grid = YeeGrid::build(design);
 
         for _i in 0..=nsteps {
@@ -879,6 +899,49 @@ mod tests {
 
         let (e, _) = grid.fields_at(1000 + 125, 0.0); // x = 5 lambda/4
         println!("x = 5 lambda/4: ey/e0 = {:.6e}, expected = {:.6e}", e[1]/emax, -(5.0*consts::PI/32.0).cos().powi(2));
+
+        let em_energy = grid.em_field_energy(&world);
+        // total energy = epsilon_0 A \int |E|^2 dx
+        // E = E_0 sin(k x) cos(k x/16) at t = 0 for |k x| < 8 pi
+        let target = VACUUM_PERMITTIVITY * emax.powi(2) * (3.0 * consts::PI * SPEED_OF_LIGHT / omega);
+
+        println!("t = {:.3e}, em_energy = {:.6e}, expected = {:.6e}", t, em_energy, target);
+        assert!( (em_energy - target).abs() / target < 1.0e-3);
+    }
+
+    #[test]
+    fn conducting_bc() {
+        let universe = mpi::initialize().unwrap();
+        let world = universe.world();
+
+        let xmin = -10.0e-6;
+        let dx = 1.0e-6 / 50.0;
+        let mut t = -15.0e-6 / SPEED_OF_LIGHT;
+        let dt = 0.95 * dx / SPEED_OF_LIGHT;
+        let nsteps: usize = (35.0e-6 / (SPEED_OF_LIGHT * dt)) as usize; // end after laser has bounced
+
+        let omega = 2.0 * consts::PI * SPEED_OF_LIGHT / 1.0e-6;
+        let emax = 1.0e10;
+        let laser_y = |t: f64, z: f64| {
+            let phi = omega * (t - z / SPEED_OF_LIGHT);
+            if phi.abs() < 8.0 * consts::PI {
+                emax * phi.sin() * (phi/16.0).cos().powi(2)
+            } else {
+                0.0
+            }
+        };
+        let laser_z = |_t, _z| {0.0};
+
+        let design = GridDesign::unbalanced(world, 1000, xmin, dx, YeeGrid::min_size(), Boundary::Laser, Boundary::Conducting);
+        let mut grid = YeeGrid::build(design);
+
+        for _i in 0..=nsteps {
+            grid.synchronize(world, &laser_y, &laser_z, t);
+            grid.advance(dt);
+            t += dt;
+        }
+
+        grid.write_data(world, "output", 0).unwrap();
 
         let em_energy = grid.em_field_energy(&world);
         // total energy = epsilon_0 A \int |E|^2 dx

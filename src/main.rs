@@ -90,9 +90,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let design = if balance {
         let ne = input.func("electrons", "ne", "x")?;
-        GridDesign::balanced(world, nx, xmin, dx, min_size, Boundary::Laser, &ne)
+        GridDesign::balanced(world, nx, xmin, dx, min_size, Boundary::Laser, Boundary::Absorbing, &ne)
     } else {
-        GridDesign::unbalanced(world, nx, xmin, dx, min_size, Boundary::Laser)
+        GridDesign::unbalanced(world, nx, xmin, dx, min_size, Boundary::Laser, Boundary::Absorbing)
     };
 
     let mut grid = YeeGrid::build(design);

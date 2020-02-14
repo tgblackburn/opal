@@ -17,11 +17,14 @@ pub use self::yee::*;
 /// particles crossing the boundary are deleted.
 /// - `Absorbing`: electromagnetic waves crossing the boundary
 /// are strongly damped, particles are deleted.
+/// - `Conducting`: fields are clamped to zero at the boundary,
+/// particles are deleted.
 #[derive(PartialEq)]
 pub enum Boundary {
     Internal,
     Laser,
     Absorbing,
+    Conducting,
 }
 
 /// Specifies how the simulation domain is to be divided among
@@ -31,6 +34,7 @@ pub struct GridDesign {
     id: i32,
     numtasks: i32,
     left: Boundary,
+    right: Boundary,
     xmin: f64,
     dx: f64,
     nx: Vec<usize>,
@@ -119,7 +123,7 @@ impl GridDesign {
     /// Designs a grid which has `size` cells of dimension `dx`
     /// and is to be split among the MPI processes of `comm`.
     /// The grid is evenly divided among all processes.
-    pub fn unbalanced(comm: impl Communicator, size: usize, xmin: f64, dx: f64, min_subsize: usize, left_bdy: Boundary) -> Self {
+    pub fn unbalanced(comm: impl Communicator, size: usize, xmin: f64, dx: f64, min_subsize: usize, left_bdy: Boundary, right_bdy: Boundary) -> Self {
         let numtasks = comm.size() as usize;
         let subsize = (size / numtasks).max(min_subsize);
         let nx = vec![subsize; numtasks];
@@ -138,6 +142,7 @@ impl GridDesign {
             id: comm.rank(),
             numtasks: comm.size(),
             left: left_bdy,
+            right: right_bdy,
             xmin: xmin,
             dx: dx,
             nx: nx,
@@ -149,10 +154,10 @@ impl GridDesign {
     /// and is to be split among the MPI processes of `comm`.
     /// The split is balanced such that the number of real electrons
     /// per subdomain is approximately the same.
-    pub fn balanced(comm: impl Communicator, size: usize, xmin: f64, dx: f64, min_subsize: usize, left_bdy: Boundary, ne: &impl Fn(f64) -> f64) -> Self {
+    pub fn balanced(comm: impl Communicator, size: usize, xmin: f64, dx: f64, min_subsize: usize, left_bdy: Boundary, right_bdy: Boundary, ne: &impl Fn(f64) -> f64) -> Self {
         let numtasks = comm.size() as usize;
         if numtasks == 0 {
-            return GridDesign::unbalanced(comm, size, xmin, dx, min_subsize, left_bdy);
+            return GridDesign::unbalanced(comm, size, xmin, dx, min_subsize, left_bdy, right_bdy);
         }
 
         // Get total number of macroparticles
@@ -192,6 +197,7 @@ impl GridDesign {
             id: comm.rank(),
             numtasks: comm.size(),
             left: left_bdy,
+            right: right_bdy,
             xmin: xmin,
             dx: dx,
             nx: ncells,
