@@ -1,3 +1,5 @@
+//! Parse input configuration file
+
 use std::fmt;
 use std::error::Error;
 use std::path::Path;
@@ -6,49 +8,103 @@ use meval::Context;
 
 use crate::constants::*;
 
-pub enum InputError {
-    InvalidInputFile(&'static str),
-    CouldNotParse(String, String),
-    //MissingField(String),
-    MissingField(String, String),
+/// Represents the input configuration, which defines values
+/// for simulation parameters, and any automatic values
+/// for those parameters.
+pub struct Config<'a> {
+    input: Yaml,
+    ctx: Context<'a>,
 }
 
-impl fmt::Debug for InputError {
+/// Effectively a triple of (file, section, field) that
+/// can be converted into various types.
+pub struct Key<'a, 'b> {
+    config: &'a Config<'a>,
+    section: &'b str,
+    field: &'b str,
+}
+
+impl<'a, 'b> Key<'a, 'b> {
+    fn new(config: &'a Config<'a>, section: &'b str, field: &'b str) -> Self {
+        Key {config: config, section: section, field: field}
+    }
+}
+
+/// The reason for a failure of `Config::read`
+pub enum ConfigErrorKind {
+    MissingFile,
+    MissingSection,
+    MissingField,
+    ConversionFailure,
+}
+
+/// Supplies the cause and origin of a failure of `Config::read`
+pub struct ConfigError {
+    kind: ConfigErrorKind,
+    section: String,
+    field: String,
+}
+
+impl fmt::Debug for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use InputError::*;
+        use ConfigErrorKind::*;
         let help_msg = "Usage: mpirun -n np ./opal input-file";
-        match self {
-            InvalidInputFile(s) => write!(f, "invalid input file: {}\n{}", s, help_msg),
-            CouldNotParse(token,field) => write!(f, "unable to parse '{}' = '{}' in configuration file", token, field),
-            MissingField(section,field) => write!(f, "unable to find '{}' in section '{}' with correct type in configuration file", field, section),
+        match self.kind {
+            MissingFile => write!(f, "Unable to open configuration file.\n{}", help_msg),
+            MissingSection => write!(f, "Could not find section \"{}\".\n{}", self.section, help_msg),
+            MissingField => write!(f, "Could not find field \"{}\" in section \"{}\".\n{}", self.field, self.section, help_msg),
+            ConversionFailure => write!(f, "Could not convert field \"{}\" in section \"{}\" to target type.\n{}", self.field, self.section, help_msg),
         }
     }
 }
 
-impl fmt::Display for InputError {
+impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl Error for InputError {}
-
-pub struct Configuration<'a> {
-    input: Yaml,
-    ctx: Context<'a>,
+impl ConfigError {
+    /// Constructs a new ConfigError
+    pub fn raise(kind: ConfigErrorKind, section: &str, field: &str) -> Self {
+        ConfigError {kind: kind, section: section.to_owned(), field: field.to_owned()}
+    }
 }
 
-impl<'a> Configuration<'a> {
-    pub fn from_file(path: &Path) -> Result<Configuration,InputError> {
-        let contents = std::fs::read_to_string(path).map_err(|_e| InputError::InvalidInputFile("unable to read file"))?;
-        let input = YamlLoader::load_from_str(&contents).map_err(|_e| InputError::InvalidInputFile("yaml trouble"))?;
-        let input = input.first().ok_or(InputError::InvalidInputFile("yaml trouble"))?;
-        Ok(Configuration {
+impl Error for ConfigError {}
+
+use std::convert::{TryFrom};
+
+impl<'a> Config<'a> {
+    /// Loads a configuration file.
+    /// Fails if the file cannot be opened or if it is not
+    /// YAML-formatted.
+    pub fn from_file(path: &Path) -> Result<Self, ConfigError> {
+        use ConfigErrorKind::*;
+        let contents = std::fs::read_to_string(path)
+            .map_err(|_| ConfigError::raise(MissingFile, "", ""))?;
+        Self::from_string(&contents)
+    }
+
+    /// Loads a YAML configuration from a string.
+    /// Fails if the string is not formatted correctly.
+    fn from_string(s: &str) -> Result<Self, ConfigError> {
+        use ConfigErrorKind::*;
+        let input = YamlLoader::load_from_str(s)
+            .map_err(|_| ConfigError::raise(MissingFile, "", ""))?;
+        let input = input.first()
+            .ok_or(ConfigError::raise(MissingFile, "", ""))?;
+
+        Ok(Config {
             input: input.clone(),
             ctx: Context::new(),
         })
     }
 
+    /// Loads automatic values for constants, special functions
+    /// and keywords.
+    /// Also loads and evaluates mathematical expressions
+    /// that are given in the specified `section`.
     pub fn with_context(&mut self, section: &str) -> &mut Self {
         // Default constants and plasma-related functions
 
@@ -94,7 +150,11 @@ impl<'a> Configuration<'a> {
             .funcn("gauss_pulse_re", gauss_pulse_re, 4)
             .funcn("gauss_pulse_im", gauss_pulse_im, 4);
 
-        // Read in from 'constants' block
+        // Read in from 'constants' block if it exists
+        if self.input[section].is_badvalue() {
+            return self;
+        }
+
         let tmp = self.ctx.clone(); // a constant cannot depend on other constants yet...
         //println!("{:#?}", self.input[section].as_hash());
 
@@ -116,68 +176,158 @@ impl<'a> Configuration<'a> {
         self
     }
 
-    pub fn real(&self, section: &str, field: &str) -> Result<f64, InputError> {
-        let name = field.to_owned();
-        match &self.input[section][field] {
-            Yaml::Real(s) => s.parse::<f64>().map_err(|_| InputError::CouldNotParse(name.clone(), s.clone())),
-            //Yaml::String(s) => s.parse::<meval::Expr>()?.eval_with_context(default_ctx),
-            Yaml::String(s) => {
-                let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(name.clone(), s.clone()))?; // Result<f64,meval:;err>
-                expr.eval_with_context(&self.ctx).map_err(|_| InputError::CouldNotParse(name.clone(), s.clone()))
-            },
-            _ => Err(InputError::MissingField(section.to_owned(), name)),
+    /// Locates a key-value pair in the configuration file (as specified by
+    /// `section` and `field`) and attempts to parse it as the specified type.
+    pub fn read<'b, T>(&'a self, section: &'b str, field: &'b str) -> Result<T, ConfigError>
+    where T: TryFrom<Key<'a, 'b>> {
+        use ConfigErrorKind::*;
+        // Does the section exist?
+        if self.input[section].is_badvalue() {
+            return Err(ConfigError::raise(MissingSection, section, field));
         }
+        // Does the field exist?
+        if self.input[section][field].is_badvalue() {
+            return Err(ConfigError::raise(MissingField, section, field));
+        }
+        // Now try conversion:
+        let key = Key::new(&self, section, field);
+        T::try_from(key).map_err(|_| ConfigError::raise(ConversionFailure, section, field))
     }
 
-    pub fn func(&'a self, section: &str, field: &str, arg: &str) -> Result<impl Fn(f64) -> f64 + 'a, InputError> {
-        //println!("{:#?}", &self.input[section][field]);
+    /// Like `Config::read`, but parses the value of a key-value pair
+    /// as a function of a single variable `arg`.
+    pub fn func(&'a self, section: &str, field: &str, arg: &str) -> Result<impl Fn(f64) -> f64 + 'a, ConfigError> {
+        use ConfigErrorKind::*;
+        // Does the section exist?
+        if self.input[section].is_badvalue() {
+            return Err(ConfigError::raise(MissingSection, section, field));
+        }
+        // Does the field exist?
+        if self.input[section][field].is_badvalue() {
+            return Err(ConfigError::raise(MissingField, section, field));
+        }
+        // Now try conversion:
         match &self.input[section][field] {
             Yaml::String(s) | Yaml::Real(s) => {
-                let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
-                let func = expr.bind_with_context(&self.ctx, arg).map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
+                let expr = s
+                    .parse::<meval::Expr>()
+                    .map_err(|_| ConfigError::raise(ConversionFailure, section, field))?;
+                let func = expr
+                    .bind_with_context(&self.ctx, arg)
+                    .map_err(|_| ConfigError::raise(ConversionFailure, section, field))?;
                 Ok(func)
             },
-            _ => Err(InputError::MissingField(section.to_owned(), field.to_owned()))
+            _ => Err(ConfigError::raise(ConversionFailure, section, field))
         }
     }
 
-    pub fn func2(&'a self, section: &str, field: &str, args: [&str; 2]) -> Result<impl Fn(f64, f64) -> f64 + 'a, InputError> {
+    /// Like `Config::read`, but parses the value of a key-value pair
+    /// as a function of two variables.
+    pub fn func2(&'a self, section: &str, field: &str, arg: [&str; 2]) -> Result<impl Fn(f64, f64) -> f64 + 'a, ConfigError> {
+        use ConfigErrorKind::*;
+        // Does the section exist?
+        if self.input[section].is_badvalue() {
+            return Err(ConfigError::raise(MissingSection, section, field));
+        }
+        // Does the field exist?
+        if self.input[section][field].is_badvalue() {
+            return Err(ConfigError::raise(MissingField, section, field));
+        }
+        // Now try conversion:
         match &self.input[section][field] {
             Yaml::String(s) | Yaml::Real(s) => {
-                let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
-                expr.bind2_with_context(&self.ctx, args[0], args[1]).map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))
+                let expr = s
+                    .parse::<meval::Expr>()
+                    .map_err(|_| ConfigError::raise(ConversionFailure, section, field))?;
+                let func = expr
+                    .bind2_with_context(&self.ctx, arg[0], arg[1])
+                    .map_err(|_| ConfigError::raise(ConversionFailure, section, field))?;
+                Ok(func)
             },
-            _ => Err(InputError::MissingField(section.to_owned(), field.to_owned()))
+            _ => Err(ConfigError::raise(ConversionFailure, section, field))
         }
     }
 
-    pub fn func3(&'a self, section: &str, field: &str, args: [&str; 3]) -> Result<impl Fn(f64, f64, f64) -> f64 + 'a, InputError> {
+    /// Like `Config::read`, but parses the value of a key-value pair
+    /// as a function of three variables.
+    pub fn func3(&'a self, section: &str, field: &str, arg: [&str; 3]) -> Result<impl Fn(f64, f64, f64) -> f64 + 'a, ConfigError> {
+        use ConfigErrorKind::*;
+        // Does the section exist?
+        if self.input[section].is_badvalue() {
+            return Err(ConfigError::raise(MissingSection, section, field));
+        }
+        // Does the field exist?
+        if self.input[section][field].is_badvalue() {
+            return Err(ConfigError::raise(MissingField, section, field));
+        }
+        // Now try conversion:
         match &self.input[section][field] {
             Yaml::String(s) | Yaml::Real(s) => {
-                let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
-                expr.bind3_with_context(&self.ctx, args[0], args[1], args[2]).map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))
+                let expr = s
+                    .parse::<meval::Expr>()
+                    .map_err(|_| ConfigError::raise(ConversionFailure, section, field))?;
+                let func = expr
+                    .bind3_with_context(&self.ctx, arg[0], arg[1], arg[2])
+                    .map_err(|_| ConfigError::raise(ConversionFailure, section, field))?;
+                Ok(func)
             },
-            _ => Err(InputError::MissingField(section.to_owned(), field.to_owned()))
+            _ => Err(ConfigError::raise(ConversionFailure, section, field))
         }
     }
+}
 
-    pub fn integer(&self, section: &str, field: &str) -> Result<i64, InputError> {
-        match &self.input[section][field] {
+impl<'a,'b> TryFrom<Key<'a,'b>> for f64 {
+    type Error = ();
+    fn try_from(key: Key<'a,'b>) -> Result<Self, Self::Error> {
+        match &key.config.input[key.section][key.field] {
+            Yaml::Real(s) => {
+                s.parse::<f64>().map_err(|_| ())
+            },
+            Yaml::Integer(i) => {
+                Ok(*i as f64)
+            },
+            Yaml::String(s) => {
+                let expr = s.parse::<meval::Expr>().map_err(|_| ())?;
+                expr.eval_with_context(&key.config.ctx).map_err(|_| ())
+            }
+            _ => Err(())
+        }
+    }
+}
+
+impl<'a,'b> TryFrom<Key<'a,'b>> for i64 {
+    type Error = ();
+    fn try_from(key: Key<'a,'b>) -> Result<Self, Self::Error> {
+        match &key.config.input[key.section][key.field] {
             Yaml::Integer(i) => Ok(*i),
-            _ => Err(InputError::MissingField(section.to_owned(), field.to_owned())),
+            _ => Err(())
         }
     }
-    
-    pub fn bool(&self, section: &str, field: &str) -> Result<bool, InputError> {
-        match &self.input[section][field] {
+}
+
+impl<'a,'b> TryFrom<Key<'a,'b>> for usize {
+    type Error = ();
+    fn try_from(key: Key<'a,'b>) -> Result<Self, Self::Error> {
+        let i = i64::try_from(key)?;
+        usize::try_from(i).map_err(|_| ())
+    }
+}
+
+impl<'a,'b> TryFrom<Key<'a,'b>> for bool {
+    type Error = ();
+    fn try_from(key: Key<'a,'b>) -> Result<Self, Self::Error> {
+        match &key.config.input[key.section][key.field] {
             Yaml::Boolean(b) => Ok(*b),
-            _ => Err(InputError::MissingField(section.to_owned(), field.to_owned())),
+            _ => Err(())
         }
     }
-    
-    pub fn strings(&self, section: &str, field: &str) -> Result<Vec<String>, InputError> {
-        let name = field.to_owned();
-        match &self.input[section][field] {
+}
+
+impl<'a,'b> TryFrom<Key<'a,'b>> for Vec<String> {
+    type Error = ();
+    fn try_from(key: Key<'a,'b>) -> Result<Self, Self::Error> {
+        match &key.config.input[key.section][key.field] {
+            // turn a single String into a vec of length 1.
             Yaml::String(s) => {
                 Ok(vec![s.clone()])
             },
@@ -191,130 +341,114 @@ impl<'a> Configuration<'a> {
                 };
                 let got: Vec<String> = array.iter().filter_map(take_yaml_string).collect();
                 if got.is_empty() {
-                    Err(InputError::CouldNotParse(section.to_owned(), name))
+                    Err(())
                 } else {
                     Ok(got)
                 }
             },
-            _ => Err(InputError::MissingField(section.to_owned(), name))
-        }
-    }
-    
-    pub fn string(&self, section: &str, field: &str) -> Result<String, InputError> {
-        let strs = self.strings(section, field)?;
-        //let str = strs.first().ok_or(InputError::MissingField(field.to_owned()))?;
-        //str.clone()
-        Ok(strs[0].clone())
-    }
-}
-
-/*
-pub fn read_evaluate<C: meval::ContextProvider>(input: &Yaml, section: &str, field: &str, ctx: &C) -> Result<f64,InputError> {
-    let name = field.to_owned();
-    match &input[section][field] {
-        Yaml::Real(s) => s.parse::<f64>().map_err(|_| InputError::CouldNotParse(name.clone(), s.clone())),
-        //Yaml::String(s) => s.parse::<meval::Expr>()?.eval_with_context(default_ctx),
-        Yaml::String(s) => {
-            let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(name.clone(), s.clone()))?; // Result<f64,meval:;err>
-            expr.eval_with_context(ctx).map_err(|_| InputError::CouldNotParse(name.clone(), s.clone()))
-        },
-        _ => Err(InputError::MissingField(name)),
-    }  
-}
-
-pub fn read_func1<'a, C: meval::ContextProvider>(input: &Yaml, section: &str, field: &str, arg: &str, ctx: &'a C) -> Result<impl Fn(f64) -> f64 + 'a,InputError> {
-    match &input[section][field] {
-        Yaml::String(s) | Yaml::Real(s) => {
-            let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
-            expr.bind_with_context(ctx, arg).map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))
-        },
-        _ => Err(InputError::MissingField(field.to_owned()))
-    }
-}
-
-pub fn read_func2<'a, C: meval::ContextProvider>(input: &Yaml, section: &str, field: &str, args: [&str; 2], ctx: &'a C) -> Result<impl Fn(f64, f64) -> f64 + 'a,InputError> {
-    match &input[section][field] {
-        Yaml::String(s) | Yaml::Real(s) => {
-            let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
-            expr.bind2_with_context(ctx, args[0], args[1]).map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))
-        },
-        _ => Err(InputError::MissingField(field.to_owned()))
-    }
-}
-
-pub fn read_func3<'a, C: meval::ContextProvider>(input: &Yaml, section: &str, field: &str, args: [&str; 3], ctx: &'a C) -> Result<impl Fn(f64, f64, f64) -> f64 + 'a,InputError> {
-    match &input[section][field] {
-        Yaml::String(s) | Yaml::Real(s) => {
-            let expr = s.parse::<meval::Expr>().map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))?;
-            expr.bind3_with_context(ctx, args[0], args[1], args[2]).map_err(|_| InputError::CouldNotParse(field.to_owned(), s.clone()))
-        },
-        _ => Err(InputError::MissingField(field.to_owned()))
-    }
-}
-
-pub fn read_integer(input: &Yaml, section: &str, field: &str) -> Result<i64,InputError> {
-    match &input[section][field] {
-        Yaml::Integer(i) => Ok(*i),
-        _ => Err(InputError::MissingField(field.to_owned())),
-    }
-}
-
-pub fn read_bool(input: &Yaml, section: &str, field: &str) -> Result<bool,InputError> {
-    match &input[section][field] {
-        Yaml::Boolean(b) => Ok(*b),
-        _ => Err(InputError::MissingField(field.to_owned())),
-    }
-}
-
-pub fn read_strings(input: &Yaml, section: &str, field: &str) -> Result<Vec<String>, InputError> {
-    let name = field.to_owned();
-    match &input[section][field] {
-        Yaml::String(s) => {
-            Ok(vec![s.clone()])
-        },
-        Yaml::Array(array) => {
-            // a is a vec of Vec<Yaml>
-            let take_yaml_string = |y: &Yaml| -> Option<String> {
-                match y {
-                    Yaml::String(s) => Some(s.clone()),
-                    _ => None
-                }
-            };
-            let got: Vec<String> = array.iter().filter_map(take_yaml_string).collect();
-            if got.is_empty() {
-                Err(InputError::CouldNotParse(section.to_owned(), name))
-            } else {
-                Ok(got)
-            }
-        },
-        _ => Err(InputError::MissingField(name))
-    }
-}
-
-pub fn read_string(input: &Yaml, section: &str, field: &str) -> Result<String, InputError> {
-    let strs = read_strings(input, section, field)?;
-    //let str = strs.first().ok_or(InputError::MissingField(field.to_owned()))?;
-    //str.clone()
-    Ok(strs[0].clone())
-}
-
-// return a result type for error handling
-pub fn read_to_context(input: &Yaml, section: &str, ctx: &mut meval::Context) {
-    let tmp = ctx.clone();
-    //println!("{:?}", input["constants"].as_hash());
-    for (a, b) in input[section].as_hash().unwrap() {
-        //println!("{:?} {:?}", a, b);
-        match (a, b) {
-            (Yaml::String(s), Yaml::Real(v)) => {
-                if let Ok(num) = v.parse::<f64>() {ctx.var(s, num);}
-            },
-            (Yaml::String(s), Yaml::String(v)) => {
-                if let Ok(expr) = v.parse::<meval::Expr>() {
-                    if let Ok(num) = expr.eval_with_context(&tmp) {ctx.var(s, num);}
-                }
-            },
-            _ => ()
+            _ => Err(())
         }
     }
 }
-*/
+
+impl<'a,'b> TryFrom<Key<'a,'b>> for String {
+    type Error = ();
+    fn try_from(key: Key<'a,'b>) -> Result<Self, Self::Error> {
+        match &key.config.input[key.section][key.field] {
+            Yaml::String(s) => Ok(s.clone()),
+            _ => Err(())
+        }
+    }
+}
+
+/// Estimated time to completion, based on amount of work done
+#[rustversion::since(1.38)]
+pub fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
+    let rt = start.elapsed().as_secs_f64();
+    let ettc = rt * ((total - current) as f64) / (current as f64);
+    std::time::Duration::from_secs_f64(ettc)
+}
+
+/// Estimated time to completion, based on amount of work done
+#[rustversion::before(1.38)]
+pub fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
+    let rt = start.elapsed();
+    let rt = (rt.as_secs() as f64) + (rt.subsec_nanos() as f64) * 1.0e-9;
+    let ettc = rt * ((total - current) as f64) / (current as f64);
+    std::time::Duration::from_secs(ettc as u64)
+}
+
+/// Wrapper around std::time::Duration
+pub struct PrettyDuration {
+    pub duration: std::time::Duration,
+}
+
+impl From<std::time::Duration> for PrettyDuration {
+    fn from(duration: std::time::Duration) -> PrettyDuration {
+        PrettyDuration {duration: duration}
+    }
+}
+
+impl fmt::Display for PrettyDuration {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut t = self.duration.as_secs();
+        let s = t % 60;
+        t /= 60;
+        let min = t % 60;
+        t /= 60;
+        let hr = t % 24;
+        let d = t / 24;
+        if d > 0 {
+            write!(f, "{}d {:02}:{:02}:{:02}", d, hr, min, s)
+        } else {
+            write!(f, "{:02}:{:02}:{:02}", hr, min, s)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::f64::consts;
+    use super::*;
+
+    #[test]
+    fn config_parser() {
+        let text = "---
+        control:
+          dx: 0.001
+          nx: 4000
+          ne: sin(a * x)
+          ib: a * b^3
+        
+        extra:
+          dx: 160
+
+        constants:
+          a: 2.0 * pi
+          b: 17.0
+        ";
+
+        let mut config = Config::from_string(&text).unwrap();
+        config.with_context("constants");
+
+        // Plain f64
+        let dx: f64 = config.read("control", "dx").unwrap();
+        assert_eq!(dx, 0.001);
+
+        // Plain usize
+        let nx: usize = config.read("control", "nx").unwrap();
+        assert_eq!(nx, 4000);
+
+        // Evaluates math expr
+        let ib: f64 = config.read("control", "ib").unwrap();
+        assert_eq!(ib, 2.0 * consts::PI * 17.0f64.powi(3));
+
+        // Implicit onversion from integer to f64
+        let dx: f64 = config.read("extra", "dx").unwrap();
+        assert_eq!(dx, 160.0);
+
+        // Function of one variable
+        let ne = config.func("control", "ne", "x").unwrap();
+        assert_eq!(ne(0.6), (2.0 * consts::PI * 0.6).sin());
+    }
+}

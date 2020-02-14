@@ -1,10 +1,16 @@
+//! Quantum synchrotron emission (nonlinear Compton scattering)
+//! e -> e + gamma in a background field
+
 use std::f64::consts;
 use crate::constants::*;
 use super::pwmci;
 
-// columns of log(chi), log(h(chi))
-// range is 0.01 <= chi <= 100
+/// Spacing (in log space) of the sample points in `LN_H_CHI_TABLE`.
 const DELTA_LN_CHI: f64 = 0.230258509299; // log(10)/10
+
+/// Table used for calculating the total quantum emission rate.
+/// Columns of log(chi), log(h(chi)), for sample points
+/// in the range 0.01 <= chi <= 100.
 static LN_H_CHI_TABLE: [[f64; 2]; 41] = [
     [-4.60517019e+0, 1.64660829e+0],
     [-4.37491168e+0, 1.64437994e+0],
@@ -49,6 +55,7 @@ static LN_H_CHI_TABLE: [[f64; 2]; 41] = [
     [4.60517019e+0, 1.07085976e-1],
 ];
 
+/// Returns the quantum synchrotron rate, per unit time (in seconds)
 pub fn rate(chi: f64, gamma: f64) -> f64 {
     let h = if chi < 0.01 {
         5.0 * consts::FRAC_PI_3 * (1.0 - 8.0 * chi / (5.0 * 3.0f64.sqrt()))
@@ -71,6 +78,7 @@ pub fn rate(chi: f64, gamma: f64) -> f64 {
     3.0f64.sqrt() * ALPHA_FINE * chi * h / (2.0 * consts::PI * gamma * COMPTON_TIME)
 }
 
+/// Returns the classical synchrotron rate, per unit time (in seconds)
 pub fn classical_rate(chi: f64, gamma: f64) -> f64 {
     let h = 5.0 * consts::FRAC_PI_3;
     3.0f64.sqrt() * ALPHA_FINE * chi * h / (2.0 * consts::PI * gamma * COMPTON_TIME)
@@ -112,6 +120,12 @@ fn from_linear_cdf_table(global_zero: f64, local_zero: f64, rand: f64, cdf: &sup
     y
 }
 
+/// Samples the quantum synchrotron spectrum of an electron with
+/// quantum parameter `chi` and Lorentz factor `gamma`.
+/// 
+/// Returns a triple of the photon energy, in units of mc^2,
+/// and the polar and azimuthal angles of emission, in the range
+/// [0,pi] and [0,2pi] respectively.
 pub fn sample(chi: f64, gamma: f64, rand1: f64, rand2: f64, rand3: f64) -> (f64, f64, f64) {
     use super::photon_emission_tables::{LN_CHI_MIN, LN_CHI_STEP, QUANTUM_CDF};
     use super::photon_emission_tables::{LN_DELTA_MIN, LN_DELTA_STEP, Y_CDF, Y_INFINITE_DELTA_CDF};
@@ -188,8 +202,8 @@ pub fn sample(chi: f64, gamma: f64, rand1: f64, rand2: f64, rand3: f64) -> (f64,
     }
 }
 
-// columns of log(x), log(cdf(u|z))
-// range is 0.02 <= x <= 20
+/// Table used for calculating the total classical emission rate.
+/// Columns of log(x), log(cdf(u|z)) for 0.02 <= x <= 20.
 static CLASSICAL_SPECTRUM_TABLE: [[f64; 2]; 41] = [
     [-3.91202301e+0, -6.60517238e+0],
     [-3.73932912e+0, -6.32380043e+0],
@@ -238,6 +252,15 @@ static CLASSICAL_SPECTRUM_TABLE: [[f64; 2]; 41] = [
 //    (2.0 * gamma.powi(2) * (1.0 + (1.0 - gamma.powi(-2)).sqrt())).powf(1.5)
 //}
 
+/// Samples the classical synchrotron spectrum of an electron with
+/// quantum parameter `chi` and Lorentz factor `gamma`.
+/// 
+/// Returns a triple of the photon energy, in units of mc^2,
+/// and the polar and azimuthal angles of emission, in the range
+/// [0,pi] and [0,2pi] respectively.
+/// 
+/// As there is no hbar-dependent cutoff, the energy of the photon
+/// can exceed that of the electron.
 pub fn classical_sample(chi: f64, gamma: f64, rand1: f64, rand2: f64, rand3: f64) -> (f64, f64, f64) {
     // First determine z:
     // z^(1/3) = (2 + 4 cos(delta/3)) / (5 (1-r)) where 0 <= r < 1

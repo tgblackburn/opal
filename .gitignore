@@ -11,3 +11,7 @@ Cargo.lock
 
 # Any output from the code goes here
 /output/
+
+# Ignore output from examples
+/examples/*
+!/examples/*.yaml

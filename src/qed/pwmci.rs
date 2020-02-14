@@ -1,3 +1,5 @@
+//! Piecewise monotonic cubic interpolation
+
 const RECURSION_LIMIT: usize = 32;
 const PRECISION_LIMIT: f64 = 1.0e-6;
 

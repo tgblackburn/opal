@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::fmt;
 
 use mpi::traits::*;
 use mpi::Threading;
@@ -20,48 +19,6 @@ mod setup;
 use setup::*;
 
 mod qed;
-
-#[rustversion::since(1.38)]
-fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
-    let rt = start.elapsed().as_secs_f64();
-    let ettc = rt * ((total - current) as f64) / (current as f64);
-    std::time::Duration::from_secs_f64(ettc)
-}
-
-#[rustversion::before(1.38)]
-fn ettc (start: std::time::Instant, current: usize, total: usize) -> std::time::Duration {
-    let rt = start.elapsed();
-    let rt = (rt.as_secs() as f64) + (rt.subsec_nanos() as f64) * 1.0e-9;
-    let ettc = rt * ((total - current) as f64) / (current as f64);
-    std::time::Duration::from_secs(ettc as u64)
-}
-
-struct PrettyDuration {
-    pub duration: std::time::Duration,
-}
-
-impl From<std::time::Duration> for PrettyDuration {
-    fn from(duration: std::time::Duration) -> PrettyDuration {
-        PrettyDuration {duration: duration}
-    }
-}
-
-impl fmt::Display for PrettyDuration {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut t = self.duration.as_secs();
-        let s = t % 60;
-        t /= 60;
-        let min = t % 60;
-        t /= 60;
-        let hr = t % 24;
-        let d = t / 24;
-        if d > 0 {
-            write!(f, "{}d {:02}:{:02}:{:02}", d, hr, min, s)
-        } else {
-            write!(f, "{:02}:{:02}:{:02}", hr, min, s)
-        }
-    }
-}
 
 fn write_energies(world: &impl Communicator, dir: &str, index: usize, grid: &impl Grid, electrons: &Population<Electron>, ions: &Population<Ion>, photons: &Population<Photon>) -> std::io::Result<()> {
     use std::fs::File;
@@ -97,33 +54,33 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
     let path = args
         .get(1)
-        .ok_or(InputError::InvalidInputFile("no file supplied"))?;
+        .ok_or(ConfigError::raise(ConfigErrorKind::MissingFile, "", ""))?;
     let path = PathBuf::from(path);
     let output_dir = path.parent().unwrap_or(Path::new("")).to_str().unwrap_or("");
 
     // Read input configuration with default context
 
-    let mut input = Configuration::from_file(&path)?;
+    let mut input = Config::from_file(&path)?;
     input.with_context("constants");
 
-    let nx = input.integer("control", "nx")? as usize;
-    let xmin = input.real("control", "xmin")?;
-    let dx = input.real("control", "dx")?;
+    let nx = input.read("control", "nx")?;
+    let xmin = input.read("control", "xmin")?;
+    let dx = input.read("control", "dx")?;
     let dt = 0.95 * dx / SPEED_OF_LIGHT;
-    let tstart = input.real("control", "start")?;
-    let tend = input.real("control", "end")?;
-    let current_deposition = input.bool("control", "current_deposition")?;
-    let output_frequency = input.integer("control", "n_outputs")? as usize;
-    let balance = input.bool("control", "balance").unwrap_or(true); // balance by default
+    let tstart = input.read("control", "start")?;
+    let tend = input.read::<f64>("control", "end")?;
+    let current_deposition = input.read("control", "current_deposition")?;
+    let output_frequency = input.read("control", "n_outputs")?;
+    let balance = input.read("control", "balance").unwrap_or(true); // balance by default
 
-    let photon_emission = input.bool("qed", "photon_emission")?;
-    let photon_energy_min = input.real("qed", "photon_energy_min").ok().map(|j| 1.0e-6 * j / ELEMENTARY_CHARGE); // convert to Option, then map joules to MeV
-    let photon_angle_max = input.real("qed", "photon_angle_max").ok();
-    let max_formation_length = input.real("qed", "max_formation_length").ok();
-    let disable_qed_after = input.real("qed", "disable_qed_after").ok();
-    let disable_absorption_after = input.real("qed", "disable_absorption_after").ok();
+    let photon_emission = input.read("qed", "photon_emission")?;
+    let photon_absorption = input.read("qed", "photon_absorption")?;
 
-    let photon_absorption = input.bool("qed", "photon_absorption")?;
+    let photon_energy_min = input.read::<f64>("qed", "photon_energy_min").ok().map(|j| 1.0e-6 * j / ELEMENTARY_CHARGE); // convert to Option, then map joules to MeV
+    let photon_angle_max = input.read("qed", "photon_angle_max").ok();
+    let max_formation_length = input.read("qed", "max_formation_length").ok();
+    let disable_qed_after = input.read("qed", "disable_qed_after").ok();
+    let disable_absorption_after = input.read("qed", "disable_absorption_after").ok();
 
     // Grid initialization
 
@@ -142,33 +99,33 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Particle initialization
 
-    let epc = input.integer("electrons", "npc")?;
-    let eospec = input.strings("electrons", "output")?;
+    let epc = input.read("electrons", "npc")?;
+    let eospec = input.read("electrons", "output")?;
 
     let mut electrons: Population<Electron> = if epc > 0 {
         let ne = input.func("electrons", "ne", "x")?;
         let ux = input.func3("electrons", "ux", ["x", "urand", "nrand"])?;
         let uy = input.func3("electrons", "uy", ["x", "urand", "nrand"])?;
         let uz = input.func3("electrons", "uz", ["x", "urand", "nrand"])?;
-        Population::new(epc as usize, ne, ux, uy, uz, &grid, &mut rng, dt)
+        Population::new(epc, ne, ux, uy, uz, &grid, &mut rng, dt)
     } else {
         Population::new_empty()
     };
 
     electrons.with_output(eospec).with_name("electron");
 
-    let ipc = input.integer("ions", "npc")?;
+    let ipc = input.read("ions", "npc")?;
 
     let mut ions: Population<Ion> = if ipc > 0 {
-        let iospec = input.strings("ions", "output")?;
-        let ion_name = input.string("ions", "name")?;
-        let ion_charge = input.real("ions", "Z")?;
-        let ion_mass = input.real("ions", "A")?;
+        let iospec = input.read("ions", "output")?;
+        let ion_name: String = input.read("ions", "name")?;
+        let ion_charge = input.read("ions", "Z")?;
+        let ion_mass = input.read("ions", "A")?;
         let ne = input.func("ions", "ni", "x")?;
         let ux = input.func3("ions", "ux", ["x", "urand", "nrand"])?;
         let uy = input.func3("ions", "uy", ["x", "urand", "nrand"])?;
         let uz = input.func3("ions", "uz", ["x", "urand", "nrand"])?;
-        let mut ions = Population::new(ipc as usize, ne, ux, uy, uz, &grid, &mut rng, dt);
+        let mut ions = Population::new(ipc, ne, ux, uy, uz, &grid, &mut rng, dt);
         ions.with_output(iospec)
             .with_name(&ion_name)
             .map_in_place(|pt: &mut Ion| {
@@ -181,14 +138,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Photons only looked for if 'photon_emission' or 'photon_absorption' are on
     let mut photons: Population<Photon> = if photon_emission || photon_absorption {
-        let ppc = input.integer("photons", "npc")?;
-        let pospec = input.strings("photons", "output")?;
+        let ppc = input.read("photons", "npc")?;
+        let pospec = input.read("photons", "output")?;
         let mut photons: Population<Photon> = if ppc > 0 {
             let nph = input.func("photons", "nph", "x")?;
             let ux = input.func3("photons", "ux", ["x", "urand", "nrand"])?;
             let uy = input.func3("photons", "uy", ["x", "urand", "nrand"])?;
             let uz = input.func3("photons", "uz", ["x", "urand", "nrand"])?;
-            Population::new(ppc as usize, nph, ux, uy, uz, &grid, &mut rng, dt)
+            Population::new(ppc, nph, ux, uy, uz, &grid, &mut rng, dt)
         } else {
             Population::new_empty()
         };

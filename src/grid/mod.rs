@@ -1,3 +1,5 @@
+//! Representation of the electromagnetic field in the simulation domain
+
 use mpi::traits::*;
 use crate::particle::Particle;
 
@@ -35,6 +37,8 @@ pub struct GridDesign {
     offset: Vec<f64>,
 }
 
+/// A one-dimensional grid that stores the electromagnetic fields,
+/// charges and currents, suitably discretized.
 #[allow(non_snake_case)]
 pub trait Grid {
     /// Constructs a new Grid based on the specified GridDesign

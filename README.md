@@ -50,4 +50,3 @@ mpirun -n np ./target/release/opal path/to/input.yaml
 
 will run Opal, distributing the domain over `np` MPI tasks, and assigning `nt` theads per task. The right balance between the number of tasks and threads is system-dependent.
 
-[1]: https://arxiv.org/abs/1904.07745 "Radiation beaming in the quantum regime (arXiv:1904.07745)"

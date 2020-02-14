@@ -221,6 +221,8 @@ impl Particle for Ion {
 }
 
 impl Ion {
+    /// Specifies that the ion should have the given charge state
+    /// (Z*), atomic number (Z) and mass number (A).
     pub fn with_charge_state(&mut self, charge_state: f64, atomic_number: f64, mass_number: f64) -> &mut Self {
         self.Z_star = charge_state;
         self.Z = atomic_number;

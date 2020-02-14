@@ -77,3 +77,5 @@ The code makes use of [meval](https://crates.io/crates/meval) when parsing the i
 * `urand`: returns a pseudorandom number, uniformly distributed between 0.0 and 1.0.
 * the physical constants `me`, `mp`, `c`, `e`: the electron mass, proton mass, speed of light and elementary charge, respectively, all in SI units.
 * the conversion constants `eV`, `keV`, `MeV`, `femto`, `pico`, `nano`, `milli`.
+
+[1]: https://arxiv.org/abs/1904.07745 "Radiation beaming in the quantum regime (arXiv:1904.07745)"

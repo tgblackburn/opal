@@ -1,4 +1,4 @@
-//#![feature(specialization)]
+//! Particle dynamics and interactions
 
 use std::fmt::{Debug};
 use mpi::traits::*;

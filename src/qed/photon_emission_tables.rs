@@ -1,3 +1,5 @@
+//! Lookup tables for the angularly resolved quantum synchrotron spectrum
+
 pub const LN_CHI_MIN: f64 = -4.60517018599; // ln(0.01)
 pub const LN_CHI_STEP: f64 = 0.230258509299; // ln(10)/10
 
