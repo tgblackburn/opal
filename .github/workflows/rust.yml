@@ -14,8 +14,8 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install libcfitsio-dev libopenmpi-dev texinfo libgsl-dev
+        sudo apt-get install libcfitsio-dev openmpi-bin libopenmpi-dev texinfo libgsl-dev
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --release --verbose
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --release --verbose -- --test-threads=1
