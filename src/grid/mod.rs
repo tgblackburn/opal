@@ -67,7 +67,7 @@ pub trait Grid {
     /// specified time.
     /// 
     /// Must be called on all processes.
-    fn synchronize(&mut self, comm: impl Communicator, laser_y: &impl Fn(f64, f64) -> f64, laser_z: &impl Fn(f64, f64) -> f64, t: f64);
+    fn synchronize(&mut self, comm: impl Communicator, laser_y: &impl Fn(f64, f64) -> f64, laser_z: &impl Fn(f64, f64) -> f64, t: f64, dt: f64);
 
     /// Calls the Maxwell solver that advance the stored electric and magnetic fields.
     fn advance(&mut self, dt: f64);

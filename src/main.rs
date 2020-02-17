@@ -160,7 +160,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if false { // current_deposition {
         grid.deposit(electrons.all(), dt);
         grid.deposit(ions.all(), dt);
-        grid.synchronize(world, &laser_y, &laser_z, 0.0);
+        grid.synchronize(world, &laser_y, &laser_z, 0.0, dt);
         grid.initialize(world);
     }
 
@@ -226,7 +226,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 grid.deposit(ions.all(), dt);
             }
 
-            grid.synchronize(world, &laser_y, &laser_z, t);
+            grid.synchronize(world, &laser_y, &laser_z, t, dt);
             grid.advance(dt);
             t += dt;
         }
