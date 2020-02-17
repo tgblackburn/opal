@@ -971,7 +971,7 @@ mod tests {
             t += dt;
         }
 
-        grid.write_data(world, "output", 0).unwrap();
+        //grid.write_data(world, "output", 0).unwrap();
 
         let em_energy = grid.em_field_energy(&world);
         // total energy = epsilon_0 A \int |E|^2 dx
