@@ -90,9 +90,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let design = if balance {
         let ne = input.func("electrons", "ne", "x")?;
-        GridDesign::balanced(world, nx, xmin, dx, min_size, Boundary::Laser, &ne)
+        GridDesign::balanced(world, nx, xmin, dx, min_size, Boundary::Laser, Boundary::Absorbing, &ne)
     } else {
-        GridDesign::unbalanced(world, nx, xmin, dx, min_size, Boundary::Laser)
+        GridDesign::unbalanced(world, nx, xmin, dx, min_size, Boundary::Laser, Boundary::Absorbing)
     };
 
     let mut grid = YeeGrid::build(design);
@@ -160,7 +160,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if false { // current_deposition {
         grid.deposit(electrons.all(), dt);
         grid.deposit(ions.all(), dt);
-        grid.synchronize(world, &laser_y, &laser_z, 0.0);
+        grid.synchronize(world, &laser_y, &laser_z, 0.0, dt);
         grid.initialize(world);
     }
 
@@ -226,7 +226,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 grid.deposit(ions.all(), dt);
             }
 
-            grid.synchronize(world, &laser_y, &laser_z, t);
+            grid.synchronize(world, &laser_y, &laser_z, t, dt);
             grid.advance(dt);
             t += dt;
         }
