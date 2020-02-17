@@ -863,11 +863,23 @@ impl YeeGrid {
 #[cfg(test)]
 mod tests {
     use std::f64::consts;
+    use std::sync::Once;
     use super::*;
+
+    // This nonsense is necessary because MPI_INIT can only be
+    // called once, and we have two tests that require it.
+    static INIT: Once = Once::new();
+    static mut UNIVERSE: Option<mpi::environment::Universe> = None;
 
     #[test]
     fn laser_bc() {
-        let universe = mpi::initialize().unwrap();
+        let universe = unsafe {
+            INIT.call_once(|| {
+                UNIVERSE = mpi::initialize();
+            });
+            UNIVERSE.as_ref().unwrap()
+        };
+        //let universe = mpi::initialize().unwrap();
         let world = universe.world();
 
         let xmin = -10.0e-6;
@@ -914,7 +926,13 @@ mod tests {
 
     #[test]
     fn conducting_bc() {
-        let universe = mpi::initialize().unwrap();
+        let universe = unsafe {
+            INIT.call_once(|| {
+                UNIVERSE = mpi::initialize();
+            });
+            UNIVERSE.as_ref().unwrap()
+        };
+        //let universe = mpi::initialize().unwrap();
         let world = universe.world();
 
         let xmin = -10.0e-6;
