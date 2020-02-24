@@ -5,7 +5,7 @@ on:
     branches: master
 
 jobs:
-  build:
+  build-openmpi:
 
     runs-on: ubuntu-latest
 
@@ -15,6 +15,21 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install libcfitsio-dev openmpi-bin libopenmpi-dev texinfo libgsl-dev
+    - name: Build
+      run: cargo build --release --verbose
+    - name: Run tests
+      run: cargo test --release --verbose -- --test-threads=1
+
+  build-mpich:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install libcfitsio-dev mpich texinfo libgsl-dev
     - name: Build
       run: cargo build --release --verbose
     - name: Run tests

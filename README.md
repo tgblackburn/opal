@@ -10,7 +10,7 @@ The following need to be installed:
 * [GSL](https://www.gnu.org/software/gsl/)
 * an MPI library
 
-Opal has been tested with OpenMPI.
+Opal has been tested with OpenMPI and MPICH.
 
 All other dependencies are Rust crates that are downloaded automatically by Cargo. Then building should be as simple as:
 
