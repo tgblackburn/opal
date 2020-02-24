@@ -376,15 +376,24 @@ impl Grid for YeeGrid {
 
         if self.rank() % 2 == 0 {
             if self.right_bdy == Boundary::Internal {
-                world.process_at_rank(self.rank_to_right).synchronous_send(&send_right[..]);
-                let mut tmp = world.process_at_rank(self.rank_to_right).receive_vec::<Cell>().0;
+                let mut tmp = if self.rank_to_right != self.id {
+                    world.process_at_rank(self.rank_to_right).synchronous_send(&send_right[..]);
+                    world.process_at_rank(self.rank_to_right).receive_vec::<Cell>().0
+                } else {
+                    send_left.clone()
+                };
                 recv_right.append(&mut tmp);
             }
         } else {
             if self.left_bdy == Boundary::Internal {
-                let mut tmp = world.process_at_rank(self.rank_to_left).receive_vec::<Cell>().0;
+                let mut tmp = if self.rank_to_left != self.id {
+                    let tmp = world.process_at_rank(self.rank_to_left).receive_vec::<Cell>().0;
+                    world.process_at_rank(self.rank_to_left).synchronous_send(&send_left[..]);
+                    tmp
+                } else {
+                    send_right.clone()
+                };
                 recv_left.append(&mut tmp);
-                world.process_at_rank(self.rank_to_left).synchronous_send(&send_left[..]);
             }
         }
 
@@ -392,15 +401,24 @@ impl Grid for YeeGrid {
 
         if self.rank() % 2 == 0 {
             if self.left_bdy == Boundary::Internal {
-                world.process_at_rank(self.rank_to_left).synchronous_send(&send_left[..]);
-                let mut tmp = world.process_at_rank(self.rank_to_left).receive_vec::<Cell>().0;
+                let mut tmp = if self.rank_to_left != self.id {
+                    world.process_at_rank(self.rank_to_left).synchronous_send(&send_left[..]);
+                    world.process_at_rank(self.rank_to_left).receive_vec::<Cell>().0
+                } else {
+                    send_right.clone()
+                };
                 recv_left.append(&mut tmp);
             }
         } else {
             if self.right_bdy == Boundary::Internal {
-                let mut tmp = world.process_at_rank(self.rank_to_right).receive_vec::<Cell>().0;
+                let mut tmp = if self.rank_to_right != self.id {
+                    let tmp = world.process_at_rank(self.rank_to_right).receive_vec::<Cell>().0;
+                    world.process_at_rank(self.rank_to_right).synchronous_send(&send_right[..]);
+                    tmp
+                } else {
+                    send_left.clone()
+                };
                 recv_right.append(&mut tmp);
-                world.process_at_rank(self.rank_to_right).synchronous_send(&send_right[..]);
             }
         }
 
@@ -992,12 +1010,61 @@ mod tests {
         };
 
         let world = universe.world();
+
+        let xmin = -10.0e-6;
+        let dx = 1.0e-6 / 100.0;
+        let mut t = -5.0e-6 / SPEED_OF_LIGHT;
+        let dt = 0.95 * dx / SPEED_OF_LIGHT;
+        let nsteps: usize = (10.0e-6 / (SPEED_OF_LIGHT * dt)) as usize;
+
+        let omega = 2.0 * consts::PI * SPEED_OF_LIGHT / 1.0e-6;
+        let jmax = omega * VACUUM_PERMITTIVITY * 1.0e5; // max e should be 1.0e5
         let no_laser = |_t, _x| {0.0};
-        let design = GridDesign::unbalanced(world, 200, -1.0e-6, 0.01e-6, YeeGrid::min_size(), Boundary::Internal, Boundary::Internal);
+
+        let design = GridDesign::unbalanced(world, 100 * 20, xmin, dx, YeeGrid::min_size(), Boundary::Internal, Boundary::Internal);
         let mut grid = YeeGrid::build(design);
-        println!("Initialized grid with {} cells on {} tasks", grid.size(), grid.ngrids());
-        grid.synchronize(world, &no_laser, &no_laser, 0.0, 1.0);
-        println!("Synchronized grid");
-        assert!(true);
+
+        println!("Initialized grid with {} cells on {} tasks, t = {:.2e}", grid.size(), grid.ngrids(), t);
+        println!("Grid to left = {:?}, to right = {:?}", grid.to_left(), grid.to_right());
+
+        for _i in 0..nsteps {
+            grid.cell[[50 * 20]].j[2] = {
+                let phi = omega * t;
+                if phi.abs() < 4.0 * consts::PI {
+                    jmax * (phi.sin() + (2.0/8.0) * phi.cos() * (phi/8.0).tan()) * (phi/8.0).cos().powi(2)
+                } else {
+                    0.0
+                }
+            };
+
+            grid.synchronize(world, &no_laser, &no_laser, t, dt);
+            grid.advance(dt);
+            t += dt;
+        }
+        
+        //grid.write_data(world, "output", 0).unwrap();
+        let initial_em_energy = grid.em_field_energy(&world);
+        println!("Updated grid to t = {:.2e}, em_field_energy = {:.6e}", t, initial_em_energy);
+
+        for _i in 0..nsteps {
+            grid.cell[[50 * 20]].j[2] = {
+                let phi = omega * t;
+                if phi.abs() < 4.0 * consts::PI {
+                    jmax * (phi.sin() + (2.0/8.0) * phi.cos() * (phi/8.0).tan()) * (phi/8.0).cos().powi(2)
+                } else {
+                    0.0
+                }
+            };
+
+            grid.synchronize(world, &no_laser, &no_laser, t, dt);
+            grid.advance(dt);
+            t += dt;
+        }
+
+        //grid.write_data(world, "output", 1).unwrap();
+        let final_em_energy = grid.em_field_energy(&world);
+        println!("Updated grid to t = {:.2e}, em_field_energy = {:.6e}", t, final_em_energy);
+
+        assert!( (initial_em_energy - final_em_energy).abs() / initial_em_energy < 1.0e-6 );
     }
 }
