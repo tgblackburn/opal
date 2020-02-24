@@ -981,4 +981,23 @@ mod tests {
         println!("t = {:.3e}, em_energy = {:.6e}, expected = {:.6e}, error = {:.3e}", t, em_energy, target, error);
         assert!(error < 1.0e-3);
     }
+
+    #[test]
+    fn periodic_bc() {
+        let universe = unsafe {
+            INIT.call_once(|| {
+                UNIVERSE = mpi::initialize();
+            });
+            UNIVERSE.as_ref().unwrap()
+        };
+
+        let world = universe.world();
+        let no_laser = |_t, _x| {0.0};
+        let design = GridDesign::unbalanced(world, 200, -1.0e-6, 0.01e-6, YeeGrid::min_size(), Boundary::Internal, Boundary::Internal);
+        let mut grid = YeeGrid::build(design);
+        println!("Initialized grid with {} cells on {} tasks", grid.size(), grid.ngrids());
+        grid.synchronize(world, &no_laser, &no_laser, 0.0, 1.0);
+        println!("Synchronized grid");
+        assert!(true);
+    }
 }
