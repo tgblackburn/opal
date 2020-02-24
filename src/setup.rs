@@ -31,6 +31,7 @@ impl<'a, 'b> Key<'a, 'b> {
 }
 
 /// The reason for a failure of `Config::read`
+#[derive(PartialEq,Copy,Clone)]
 pub enum ConfigErrorKind {
     MissingFile,
     MissingSection,
@@ -39,6 +40,7 @@ pub enum ConfigErrorKind {
 }
 
 /// Supplies the cause and origin of a failure of `Config::read`
+#[derive(Clone)]
 pub struct ConfigError {
     kind: ConfigErrorKind,
     section: String,
@@ -174,6 +176,12 @@ impl<'a> Config<'a> {
         }
 
         self
+    }
+
+    /// Test if the file contains a specific section
+    pub fn contains(&self, section: &str) -> bool {
+        use std::ops::Not;
+        self.input[section].is_badvalue().not()
     }
 
     /// Locates a key-value pair in the configuration file (as specified by
