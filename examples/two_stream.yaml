@@ -1,0 +1,27 @@
+---
+control:
+ dx: 500
+ nx: 1000
+ xmin: 0.0
+ start: 0.0
+ end: 0.1
+ current_deposition: true
+ n_outputs: 20
+
+qed:
+ photon_emission: false
+ photon_absorption: false
+
+electrons:
+ npc: 100
+ ne: 20.0
+ ux: drift_u * (1.0 + 0.001 * nrand) * (2.0 * floor(urand - 0.5) + 1.0)
+ uy: 0.0
+ uz: 0.0
+ output: x:px
+
+ions:
+ npc: 0
+ 
+constants:
+ drift_u: 2.5e-24 / (me * c)

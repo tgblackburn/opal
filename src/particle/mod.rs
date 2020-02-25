@@ -299,15 +299,24 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
         if grid.rank() % 2 == 0 {
             if let Some(r) = grid.to_right() {
-                comm.process_at_rank(r).synchronous_send_with_tag(send_right, tag);
-                let mut tmp = comm.process_at_rank(r).receive_vec_with_tag::<T>(tag).0;
+                let mut tmp = if r != grid.rank() {
+                    comm.process_at_rank(r).synchronous_send_with_tag(send_right, tag);
+                    comm.process_at_rank(r).receive_vec_with_tag::<T>(tag).0
+                } else {
+                    send_left.to_vec()
+                };
                 recv_right.append(&mut tmp);
             }
         } else {
             if let Some(l) = grid.to_left() {
-                let mut tmp = comm.process_at_rank(l).receive_vec_with_tag::<T>(tag).0;
+                let mut tmp = if l != grid.rank() {
+                    let tmp = comm.process_at_rank(l).receive_vec_with_tag::<T>(tag).0;
+                    comm.process_at_rank(l).synchronous_send_with_tag(send_left, tag);
+                    tmp
+                } else {
+                    send_right.to_vec()
+                };
                 recv_left.append(&mut tmp);
-                comm.process_at_rank(l).synchronous_send_with_tag(send_left, tag);
             }
         }
 
@@ -315,15 +324,24 @@ impl<T> Population<T> where T: Particle + Send + Sync {
 
         if grid.rank() % 2 == 0 {
             if let Some(l) = grid.to_left() {
-                comm.process_at_rank(l).synchronous_send_with_tag(send_left, tag);
-                let mut tmp = comm.process_at_rank(l).receive_vec_with_tag::<T>(tag).0;
+                let mut tmp = if l != grid.rank() {
+                    comm.process_at_rank(l).synchronous_send_with_tag(send_left, tag);
+                    comm.process_at_rank(l).receive_vec_with_tag::<T>(tag).0
+                } else {
+                    send_right.to_vec()
+                };
                 recv_left.append(&mut tmp);
             }
         } else {
             if let Some(r) = grid.to_right() {
-                let mut tmp = comm.process_at_rank(r).receive_vec_with_tag::<T>(tag).0;
+                let mut tmp = if r != grid.rank() {
+                    let tmp = comm.process_at_rank(r).receive_vec_with_tag::<T>(tag).0;
+                    comm.process_at_rank(r).synchronous_send_with_tag(send_right, tag);
+                    tmp
+                } else {
+                    send_left.to_vec()
+                };
                 recv_right.append(&mut tmp);
-                comm.process_at_rank(r).synchronous_send_with_tag(send_right, tag);
             }
         }
 

@@ -41,6 +41,10 @@ fn write_energies(world: &impl Communicator, dir: &str, index: usize, grid: &imp
     Ok(())
 }
 
+fn no_laser(_t: f64, _x: f64) -> f64 {
+    0.0
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let (universe, _) = mpi::initialize_with_threading(Threading::Funneled).unwrap();
     let world = universe.world();
@@ -84,15 +88,27 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Grid initialization
 
-    let laser_y = input.func2("laser", "Ey", ["t", "x"])?;
-    let laser_z = input.func2("laser", "Ez", ["t", "x"])?;
+    let laser_y = input.func2("laser", "Ey", ["t", "x"]);
+    let laser_z = input.func2("laser", "Ez", ["t", "x"]);
+
+    // If the laser section exists, both laser_y and laser_z
+    // must be specified, or there is an input error.
+    // If it does not exist, then we select periodic bcs.
+    let (left_bdy, right_bdy) = if input.contains("laser") {
+        laser_y.as_ref().map_err(|e| e.clone())?;
+        laser_z.as_ref().map_err(|e| e.clone())?;
+        (Boundary::Laser, Boundary::Absorbing)
+    } else {
+        (Boundary::Internal, Boundary::Internal)
+    };
+
     let min_size = YeeGrid::min_size();
 
     let design = if balance {
         let ne = input.func("electrons", "ne", "x")?;
-        GridDesign::balanced(world, nx, xmin, dx, min_size, Boundary::Laser, Boundary::Absorbing, &ne)
+        GridDesign::balanced(world, nx, xmin, dx, min_size, left_bdy, right_bdy, &ne)
     } else {
-        GridDesign::unbalanced(world, nx, xmin, dx, min_size, Boundary::Laser, Boundary::Absorbing)
+        GridDesign::unbalanced(world, nx, xmin, dx, min_size, left_bdy, right_bdy)
     };
 
     let mut grid = YeeGrid::build(design);
@@ -160,7 +176,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     if false { // current_deposition {
         grid.deposit(electrons.all(), dt);
         grid.deposit(ions.all(), dt);
-        grid.synchronize(world, &laser_y, &laser_z, 0.0, dt);
+        if left_bdy == Boundary::Laser {
+            grid.synchronize(world, laser_y.as_ref().unwrap(), laser_z.as_ref().unwrap(), 0.0, dt);
+        } else {
+            grid.synchronize(world, &no_laser, &no_laser, 0.0, dt);
+        }
         grid.initialize(world);
     }
 
@@ -195,12 +215,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         if grid.rank() == 0 {
             if i > 0 {
                 println!(
-                    "Output {: >4} at t = {: >8.2} fs, RT = {}, ETTC = {}...",
-                    i, 1.0e15 * t, PrettyDuration::from(runtime.elapsed()),
+                    "Output {: >4} at t = {}, RT = {}, ETTC = {}...",
+                    i, SimulationTime(t), PrettyDuration::from(runtime.elapsed()),
                     PrettyDuration::from(ettc(runtime, i * steps_bt_output, output_frequency * steps_bt_output))
                 );
             } else {
-                println!("Output {: >4} at t = {: >8.2} fs...", i, 1.0e15 * t);
+                println!("Output {: >4} at t = {}...", i, SimulationTime(t));
             }
         }
 
@@ -226,7 +246,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 grid.deposit(ions.all(), dt);
             }
 
-            grid.synchronize(world, &laser_y, &laser_z, t, dt);
+            if left_bdy == Boundary::Laser {
+                grid.synchronize(world, laser_y.as_ref().unwrap(), laser_z.as_ref().unwrap(), t, dt);
+            } else {
+                grid.synchronize(world, &no_laser, &no_laser, t, dt);
+            }
             grid.advance(dt);
             t += dt;
         }
@@ -242,8 +266,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if grid.rank() == 0 {
         println!(
-            "Output {: >4} at t = {: >8.2} fs, RT = {}",
-            output_frequency, 1.0e15 * t, PrettyDuration::from(runtime.elapsed())
+            "Output {: >4} at t = {}, RT = {}",
+            output_frequency, SimulationTime(t), PrettyDuration::from(runtime.elapsed())
         );
     }
 

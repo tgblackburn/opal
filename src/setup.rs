@@ -31,6 +31,7 @@ impl<'a, 'b> Key<'a, 'b> {
 }
 
 /// The reason for a failure of `Config::read`
+#[derive(PartialEq,Copy,Clone)]
 pub enum ConfigErrorKind {
     MissingFile,
     MissingSection,
@@ -39,6 +40,7 @@ pub enum ConfigErrorKind {
 }
 
 /// Supplies the cause and origin of a failure of `Config::read`
+#[derive(Clone)]
 pub struct ConfigError {
     kind: ConfigErrorKind,
     section: String,
@@ -174,6 +176,12 @@ impl<'a> Config<'a> {
         }
 
         self
+    }
+
+    /// Test if the file contains a specific section
+    pub fn contains(&self, section: &str) -> bool {
+        use std::ops::Not;
+        self.input[section].is_badvalue().not()
     }
 
     /// Locates a key-value pair in the configuration file (as specified by
@@ -406,6 +414,29 @@ impl fmt::Display for PrettyDuration {
     }
 }
 
+/// Wrapper around the simulation time (in seconds)
+pub struct SimulationTime(pub f64);
+
+impl fmt::Display for SimulationTime {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // find nearest SI prefix
+        let power = 3.0 * ((self.0.log10() + 0.0) / 3.0).floor();
+        // and clip to -18 <= x <= 0
+        let power = power.min(0.0f64).max(-18.0f64);
+        let power = power as i32;
+        let (unit, scale) = match power {
+            -18 => ("as", 1.0e18),
+            -15 => ("fs", 1.0e15),
+            -12 => ("ps", 1.0e12),
+            -9  => ("ns", 1.0e9),
+            -6  => ("\u{03bc}s", 1.0e6),
+            -3  => ("ms", 1.0e3),
+            _   => (" s", 1.0)
+        };
+        write!(f, "{: >8.2} {}", scale * self.0, unit)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::f64::consts;
@@ -450,5 +481,13 @@ mod tests {
         // Function of one variable
         let ne = config.func("control", "ne", "x").unwrap();
         assert_eq!(ne(0.6), (2.0 * consts::PI * 0.6).sin());
+    }
+
+    #[test]
+    fn time_format() {
+        let t = 2.6e-4_f64;
+        let output = SimulationTime(t).to_string();
+        println!("\"{}\" => \"{}\"", t, output);
+        assert_eq!(output, "  260.00 \u{03bc}s");
     }
 }

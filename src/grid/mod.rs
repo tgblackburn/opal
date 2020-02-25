@@ -19,7 +19,7 @@ pub use self::yee::*;
 /// are strongly damped, particles are deleted.
 /// - `Conducting`: fields are clamped to zero at the boundary,
 /// particles are deleted.
-#[derive(PartialEq)]
+#[derive(PartialEq,Copy,Clone)]
 pub enum Boundary {
     Internal,
     Laser,
