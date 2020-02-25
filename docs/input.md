@@ -1,6 +1,6 @@
 # Creating an input configuration
 
-opal takes as its single argument the path to a YAML file describing the input configuration. This file is divided into sections that set up the initial particle distributions, externally injected electromagnetic fields, and desired physical processes. All apart from [photons](#photons) and [constants](#constants) are compulsory.
+opal takes as its single argument the path to a YAML file describing the input configuration. This file is divided into sections that set up the initial particle distributions, externally injected electromagnetic fields, and desired physical processes. All apart from [photons](#photons), [laser](#laser) and [constants](#constants) are compulsory.
 
 ## control
 
@@ -54,6 +54,8 @@ Similarly, opal supports only one ion species at present. Only `npc` is compulso
 If either `photon_emission` or `photon_absorption` are enabled, this section must exist. However, if `npc` is zero, only `output` needs to be given. Otherwise, the fields are the same as for the [electrons](#electrons), but `ne` is renamed `nph`.
 
 ## laser
+
+ If this section is not present, the code will switch to periodic boundary conditions. Otherwise, there are two compulsory fields:
 
 * `Ey`
 * `Ez`
