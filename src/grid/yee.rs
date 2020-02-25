@@ -876,6 +876,27 @@ impl YeeGrid {
             self.cell[[i]].E[2] += dt * SPEED_OF_LIGHT_SQD * (self.cell[[i]].B[1] - self.cell[[i-1]].B[1]) / self.dx - dt * self.cell[[i]].j[2] / VACUUM_PERMITTIVITY;
         }
     }
+
+    /// Bilinear filter of charge and current density,
+    /// suppresses signal at the Nyquist frequency.
+    #[allow(unused)]
+    fn smooth_currents(&mut self, alpha: f64) {
+        let mut smoothed = self.cell.clone();
+        let windows = self.cell.windows(3);
+
+        smoothed
+            .slice_mut(s![1..-1])
+            .iter_mut()
+            .zip(windows)
+            .for_each(|(c, w)| {
+                // j_i = alpha j_i + (1 - alpha) (j_{i-1} + j_{i+1}) / 2
+                c.j[0] = alpha * w[[1]].j[0] + 0.5 * (1.0 - alpha) * (w[[0]].j[0] + w[[2]].j[0]);
+                c.j[1] = alpha * w[[1]].j[1] + 0.5 * (1.0 - alpha) * (w[[0]].j[1] + w[[2]].j[1]);
+                c.j[2] = alpha * w[[1]].j[2] + 0.5 * (1.0 - alpha) * (w[[0]].j[2] + w[[2]].j[2]);
+            });
+
+        std::mem::swap(&mut self.cell, &mut smoothed);
+    }
 }
 
 #[cfg(test)]

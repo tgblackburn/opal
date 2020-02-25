@@ -215,12 +215,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         if grid.rank() == 0 {
             if i > 0 {
                 println!(
-                    "Output {: >4} at t = {: >8.2} fs, RT = {}, ETTC = {}...",
-                    i, 1.0e15 * t, PrettyDuration::from(runtime.elapsed()),
+                    "Output {: >4} at t = {}, RT = {}, ETTC = {}...",
+                    i, SimulationTime(t), PrettyDuration::from(runtime.elapsed()),
                     PrettyDuration::from(ettc(runtime, i * steps_bt_output, output_frequency * steps_bt_output))
                 );
             } else {
-                println!("Output {: >4} at t = {: >8.2} fs...", i, 1.0e15 * t);
+                println!("Output {: >4} at t = {}...", i, SimulationTime(t));
             }
         }
 
@@ -266,8 +266,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if grid.rank() == 0 {
         println!(
-            "Output {: >4} at t = {: >8.2} fs, RT = {}",
-            output_frequency, 1.0e15 * t, PrettyDuration::from(runtime.elapsed())
+            "Output {: >4} at t = {}, RT = {}",
+            output_frequency, SimulationTime(t), PrettyDuration::from(runtime.elapsed())
         );
     }
 
