@@ -1,3 +1,16 @@
+//! Airy functions
+//! 
+//! Currently implemented:
+//! 
+//! * Airy function of the first kind, Ai(z), for real,
+//!   positive argument.
+//! 
+//! Algorithms adapted from:
+//! 
+//! * A. Gil, J. Segura and N. M. Tenne,
+//!   "Computing Complex Airy Functions by Numerical Quadrature",
+//!   Numerical Algorithms 30, 11--23 (2002)
+
 use super::Series;
 
 /// Returns the value of the Airy function for real, positive `x`.
