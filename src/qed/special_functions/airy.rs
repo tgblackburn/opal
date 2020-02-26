@@ -22,7 +22,7 @@ pub fn airy_ai_for_positive(x: f64) -> Option<f64> {
     } else if x < 1.0 {
         // Use Taylor series expansion
         Some(SMALL_X_EXPANSION.evaluate_at(x))
-    } else if x < 10.0 {
+    } else if x < 5.0 {
         // Numerically integrate the integal representation
         // the Airy function using 40-point Gauss-Laguerre
         // quadrature.
@@ -39,27 +39,23 @@ pub fn airy_ai_for_positive(x: f64) -> Option<f64> {
         //   s = 2 x^(3/2) / 3.
         let s = 2.0 * x.powf(1.5) / 3.0;
         let a = 0.262183997088323 * s.powf(-1.0/6.0) * (-s).exp();
-        let integral: f64 = GAUSS_LAGUERRE_NODES.iter()
-            .zip(GAUSS_LAGUERRE_WEIGHTS.iter())
+        let integral: f64 = GAUSS_LAGUERRE_40_NODES.iter()
+            .zip(GAUSS_LAGUERRE_40_WEIGHTS.iter())
+            .map(|(x, w)| w * (2.0 + x / s).powf(-1.0/6.0))
+            .sum();
+        Some(a * integral)
+    } else if x < 50.0 {
+        // As above, but using fewer nodes
+        let s = 2.0 * x.powf(1.5) / 3.0;
+        let a = 0.262183997088323 * s.powf(-1.0/6.0) * (-s).exp();
+        let integral: f64 = GAUSS_LAGUERRE_8_NODES.iter()
+            .zip(GAUSS_LAGUERRE_8_WEIGHTS.iter())
             .map(|(x, w)| w * (2.0 + x / s).powf(-1.0/6.0))
             .sum();
         Some(a * integral)
     } else {
-        // if x > 10, calculate expansion of exp(2z^(3/2)/3) Ai(x)
-        // around x = infinity, for scaled argument y = x / 10.0.
-        // This sum is well-behaved even if y is very large.
-        let y = x / 10.0;
-        let total = SCALED_LARGE_Y_EXPANSION.evaluate_at(y);
-        // The scaling factor, on the other hand, can be
-        // too small to represent as an f64.
-        let scale = (-2.0 * x.powf(1.5) / 3.0).exp();
-        // If it does underflow, return None instead.
-        let value = scale * total;
-        if value.is_normal() {
-            Some(value)
-        } else {
-            None
-        }
+        // Ai(50) < 4.5e-104
+        None
     }
 }
 
@@ -181,7 +177,7 @@ static SCALED_LARGE_Y_EXPANSION: Series<f64> = Series {
     ],
 };
  
-static GAUSS_LAGUERRE_NODES: [f64; 40] = [
+static GAUSS_LAGUERRE_40_NODES: [f64; 40] = [
     2.838914179945677e-2,
     1.709853788600349e-1,
     4.358716783417705e-1,
@@ -224,7 +220,7 @@ static GAUSS_LAGUERRE_NODES: [f64; 40] = [
     1.419607885990635e+2,
 ];
 
-static GAUSS_LAGUERRE_WEIGHTS: [f64; 40] = [
+static GAUSS_LAGUERRE_40_WEIGHTS: [f64; 40] = [
     1.437204088033139e-1,
     2.304075592418809e-1,
     2.422530455213276e-1,
@@ -265,4 +261,26 @@ static GAUSS_LAGUERRE_WEIGHTS: [f64; 40] = [
     8.418177761921027e-51,
     1.554777624272071e-55,
     1.625726581852354e-61,
+];
+
+static GAUSS_LAGUERRE_8_NODES: [f64; 8] = [
+    1.364256874838046e-1,
+    8.271008402545598e-1,
+    2.135261245428776e+0,
+    4.114286009819638e+0,
+    6.858726982299833e+0,
+    1.053755104755655e+1,
+    1.548574668915268e+1,
+    2.257156816467083e+1,
+];
+
+static GAUSS_LAGUERRE_8_WEIGHTS: [f64; 8] = [
+    4.778373760361903e-1,
+    4.482295225655504e-1,
+    1.700060301232826e-1,
+    3.021884895305771e-2,
+    2.418705848223268e-3,
+    7.585612267729731e-5,
+    6.894284498290191e-7,
+    8.306945327843998e-10,
 ];
