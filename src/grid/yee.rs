@@ -63,7 +63,6 @@ use mpi::datatype::UserDatatype;
 use memoffset::*;
 use ndarray::prelude::*;
 use rayon::prelude::*;
-use num_traits::identities::Zero;
 
 use crate::constants::*;
 use crate::grid::*;
@@ -217,19 +216,6 @@ impl Add for Cell {
         }
     }
 
-}
-
-impl Zero for Cell {
-    fn zero() -> Self {
-        Cell {x: 0.0, rho: 0.0, j: [0.0; 3], E: [0.0; 3], B: [0.0; 3]}
-    }
-
-    fn is_zero(&self) -> bool {
-        (self.x == 0.0 && self.rho == 0.0 &&
-        self.j[0] == 0.0 && self.j[1] == 0.0 && self.j[2] == 0.0 &&
-        self.E[0] == 0.0 && self.E[1] == 0.0 && self.E[2] == 0.0 &&
-        self.B[0] == 0.0 && self.B[1] == 0.0 && self.B[2] == 0.0)
-    }
 }
 
 /// Defines a equivalent MPI datatype for Cell
@@ -661,8 +647,11 @@ impl Grid for YeeGrid {
         // and synchronized
 
         // Determine the total charge and current on the grid
-        let Cell {rho: local_rho, j: local_j, ..} =
-            self.cell.slice(s![self.left_bdy_size..-self.right_bdy_size]).sum();
+        let (local_rho, local_j) = self.cell
+            .slice(s![self.left_bdy_size..-self.right_bdy_size])
+            .fold( (0.0, [0.0; 3]), |rt, c| {
+                (rt.0 + c.rho, [rt.1[0] + c.j[0], rt.1[1] + c.j[1], rt.1[2] + c.j[2]])
+            });
 
         if self.rank() == 0 {
             let mut domain_rho = 0.0;
