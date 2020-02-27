@@ -29,6 +29,7 @@ impl Series<i32> {
 
 impl Series<f64> {
     /// Returns the value of series expansion at `x`
+    #[allow(unused)]
     fn evaluate_at(&self, x: f64) -> f64 {
         self.a.iter()
             .zip(self.n.iter())
