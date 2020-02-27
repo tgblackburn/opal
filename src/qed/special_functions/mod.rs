@@ -19,9 +19,15 @@ struct Series<T> {
 
 impl Series<i32> {
     /// Returns the value of series expansion at `x`
+    #[allow(unused)]
     fn evaluate_at(&self, x: f64) -> f64 {
+        self.evaluate_up_to(x, SERIES_MAX_LENGTH)
+    }
+
+    fn evaluate_up_to(&self, x: f64, max: usize) -> f64 {
         self.a.iter()
             .zip(self.n.iter())
+            .take(max)
             .map(|(a, p)| a * x.powi(*p))
             .sum::<f64>()
     }

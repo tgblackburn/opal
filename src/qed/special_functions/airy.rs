@@ -21,8 +21,8 @@ pub fn airy_ai_for_positive(x: f64) -> Option<f64> {
         None
     } else if x < 1.0 {
         // Use Taylor series expansion
-        Some(SMALL_X_EXPANSION.evaluate_at(x))
-    } else if x < 5.0 {
+        Some(SMALL_X_EXPANSION.evaluate_up_to(x, 14))
+    } else if x < 2.0 {
         // Numerically integrate the integal representation
         // the Airy function using 40-point Gauss-Laguerre
         // quadrature.
@@ -44,12 +44,21 @@ pub fn airy_ai_for_positive(x: f64) -> Option<f64> {
             .map(|(x, w)| w * (2.0 + x / s).powf(-1.0/6.0))
             .sum();
         Some(a * integral)
+    } else if x < 10.0 {
+        // As above, but using fewer nodes
+        let s = 2.0 * x.powf(1.5) / 3.0;
+        let a = 0.262183997088323 * s.powf(-1.0/6.0) * (-s).exp();
+        let integral: f64 = GAUSS_LAGUERRE_16_NODES.iter()
+            .zip(GAUSS_LAGUERRE_16_WEIGHTS.iter())
+            .map(|(x, w)| w * (2.0 + x / s).powf(-1.0/6.0))
+            .sum();
+        Some(a * integral)
     } else if x < 50.0 {
         // As above, but using fewer nodes
         let s = 2.0 * x.powf(1.5) / 3.0;
         let a = 0.262183997088323 * s.powf(-1.0/6.0) * (-s).exp();
-        let integral: f64 = GAUSS_LAGUERRE_8_NODES.iter()
-            .zip(GAUSS_LAGUERRE_8_WEIGHTS.iter())
+        let integral: f64 = GAUSS_LAGUERRE_4_NODES.iter()
+            .zip(GAUSS_LAGUERRE_4_WEIGHTS.iter())
             .map(|(x, w)| w * (2.0 + x / s).powf(-1.0/6.0))
             .sum();
         Some(a * integral)
@@ -62,13 +71,14 @@ pub fn airy_ai_for_positive(x: f64) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const MAX_REL_ERR: f64 = 1.0e-12;
 
     #[test]
     fn airy_0() {
         let val = airy_ai_for_positive(0.0).unwrap();
         let target = 0.355028053888;
         println!("Ai(0) = {:e}, calculated = {:e}", target, val);
-        assert!( ((val - target)/target).abs() < 1.0e-12 );
+        assert!( ((val - target)/target).abs() < MAX_REL_ERR );
     }
 
     #[test]
@@ -76,7 +86,7 @@ mod tests {
         let val = airy_ai_for_positive(2.0).unwrap();
         let target = 0.0349241304233;
         println!("Ai(2) = {:e}, calculated = {:e}", target, val);
-        assert!( ((val - target)/target).abs() < 1.0e-12 );
+        assert!( ((val - target)/target).abs() < MAX_REL_ERR );
     }
 
     #[test]
@@ -84,7 +94,7 @@ mod tests {
         let val = airy_ai_for_positive(17.0).unwrap();
         let target = 7.05019729838861e-22;
         println!("Ai(17) = {:e}, calculated = {:e}", target, val);
-        assert!( ((val - target)/target).abs() < 1.0e-12 );
+        assert!( ((val - target)/target).abs() < MAX_REL_ERR );
     }
 
     #[test]
@@ -92,7 +102,7 @@ mod tests {
         let val = airy_ai_for_positive(20.0).unwrap();
         let target = 1.69167286867e-27;
         println!("Ai(20) = {:e}, calculated = {:e}", target, val);
-        assert!( ((val - target)/target).abs() < 1.0e-12 );
+        assert!( ((val - target)/target).abs() < MAX_REL_ERR );
     }
 
     #[test]
@@ -216,24 +226,54 @@ static GAUSS_LAGUERRE_40_WEIGHTS: [f64; 40] = [
     1.625726581852354e-61,
 ];
 
-static GAUSS_LAGUERRE_8_NODES: [f64; 8] = [
-    1.364256874838046e-1,
-    8.271008402545598e-1,
-    2.135261245428776e+0,
-    4.114286009819638e+0,
-    6.858726982299833e+0,
-    1.053755104755655e+1,
-    1.548574668915268e+1,
-    2.257156816467083e+1,
+static GAUSS_LAGUERRE_16_NODES: [f64; 16] = [
+    6.990398696320011e-2,
+    4.216550531234919e-1,
+    1.077886957549787e+0,
+    2.045007240070608e+0,
+    3.332589390629165e+0,
+    4.954060392944802e+0,
+    6.927564456099590e+0,
+    9.277260547765162e+0,
+    1.203531807856921e+1,
+    1.524508602669737e+1,
+    1.896636896602229e+1,
+    2.328480784962387e+1,
+    2.833015260757935e+1,
+    3.431685610993765e+1,
+    4.165487031615267e+1,
+    5.139394535360512e+1,
 ];
 
-static GAUSS_LAGUERRE_8_WEIGHTS: [f64; 8] = [
-    4.778373760361903e-1,
-    4.482295225655504e-1,
-    1.700060301232826e-1,
-    3.021884895305771e-2,
-    2.418705848223268e-3,
-    7.585612267729731e-5,
-    6.894284498290191e-7,
-    8.306945327843998e-10,
+static GAUSS_LAGUERRE_16_WEIGHTS: [f64; 16] = [
+    2.922417179018809e-1,
+    3.811335382664116e-1,
+    2.723536895279418e-1,
+    1.292443070163705e-1,
+    4.241214760845679e-2,
+    9.693442499237142e-3,
+    1.531608889114675e-3,
+    1.643808449854753e-4,
+    1.165782218980020e-5,
+    5.251146380292064e-7,
+    1.420270694502774e-8,
+    2.126306491706232e-10,
+    1.557034573630566e-12,
+    4.548074008671047e-15,
+    3.600541715551579e-18,
+    2.928371092535847e-22,
+];
+
+static GAUSS_LAGUERRE_4_NODES: [f64; 4] = [
+    2.605163387076808e-1,
+    1.609745468990262e+0,
+    4.334508323683735e+0,
+    9.128563201951656e+0,
+];
+
+static GAUSS_LAGUERRE_4_WEIGHTS: [f64; 4] = [
+    7.261979421222567e-1,
+    3.654875045103909e-1,
+    3.661964191912544e-2,
+    4.819413563529568e-4,
 ];
