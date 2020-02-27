@@ -420,7 +420,7 @@ pub struct SimulationTime(pub f64);
 impl fmt::Display for SimulationTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // find nearest SI prefix
-        let power = 3.0 * ((self.0.log10() + 0.0) / 3.0).floor();
+        let power = 3.0 * ((self.0.abs().log10() + 0.0) / 3.0).floor();
         // and clip to -18 <= x <= 0
         let power = power.min(0.0f64).max(-18.0f64);
         let power = power as i32;

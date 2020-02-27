@@ -7,7 +7,6 @@ Parallel, relativistic 1d3v PIC code. Written primarily to do some plasma physic
 The following need to be installed:
 
 * [CFITSIO](https://heasarc.gsfc.nasa.gov/fitsio/)
-* [GSL](https://www.gnu.org/software/gsl/)
 * an MPI library
 
 Opal has been tested with OpenMPI and MPICH.

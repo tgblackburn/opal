@@ -151,11 +151,7 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64,
 
     let nph = ph.store.len();
     let nthreads = rayon::current_num_threads();
-    let chunk_len = if nph > nthreads {
-        nph / nthreads
-    } else {
-        nph // guarantee this runs
-    };
+    let chunk_len = (nph / (4 * nthreads)).max(1);
 
     // return a Vec of:
     //  index of the electron that did the absorbing

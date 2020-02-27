@@ -51,8 +51,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let id = world.rank();
 
     let mut rng = Xoshiro256StarStar::seed_from_u64(id as u64);
-    qed::photon_absorption::disable_gsl_abort_on_error();
-
     // Prepare configuration file
 
     let args: Vec<String> = std::env::args().collect();

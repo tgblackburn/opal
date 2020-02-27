@@ -1,69 +1,11 @@
 //! One-photon absorption: gamma + e -> e in a background field
 
 use std::f64::consts;
-use libc::{c_int, c_double, c_char};
 
 use crate::constants::*;
+use super::special_functions::*;
 
 const CLASSICAL_ELECTRON_RADIUS: f64 = 2.81794e-15;
-
-#[allow(unused)]
-#[repr(C)]
-enum gsl_mode {
-    PrecDouble,
-    PrecSingle,
-    PrecApprox,
-}
-
-#[repr(C)]
-struct gsl_result {
-    val: f64,
-    err: f64,
-}
-
-/// A C function pointer, and therefore nullable.
-/// In the latter case, None is treated as NULL.
-type GslErrorHandler = Option<extern "C" fn(*const c_char, *const c_char, c_int, c_int)>;
-
-#[link(name = "gsl")]
-#[link(name = "gslcblas")]
-extern {
-    fn gsl_sf_airy_Ai_e(x: c_double, mode: gsl_mode, result: *mut gsl_result) -> c_int;
-    fn gsl_set_error_handler_off() -> GslErrorHandler;
-    fn gsl_set_error_handler(handler: GslErrorHandler) -> GslErrorHandler;
-}
-
-/// Returns the Airy function (of the first kind) Ai(x)
-fn airy_ai(z: f64) -> Option<f64> {
-    let mode = gsl_mode::PrecDouble;
-    let mut result = gsl_result {val: 0.0, err: 0.0};
-    let status = unsafe {
-        gsl_sf_airy_Ai_e(z, mode, &mut result)
-    };
-    if status == 0 {
-        Some(result.val)
-    } else {
-        None
-    }
-}
-
-/// Default behaviour of the GSL is to abort when an error is
-/// encountered, such as overflow or underflow.
-/// Turn this off and handle errors ourselves.
-pub fn disable_gsl_abort_on_error() {
-    unsafe {
-        gsl_set_error_handler_off();
-    }
-}
-
-/// Restores default behaviour of the GSL, which is to abort when an error is
-/// encountered.
-#[allow(unused)]
-pub fn enable_gsl_abort_on_error() {
-    unsafe {
-        gsl_set_error_handler(None);
-    }
-}
 
 /// The scaled cross section for one-photon absorption is given by
 ///   scaled_sigma = k.p sigma / (k0 p0)
@@ -86,53 +28,10 @@ pub fn scaled_cross_section(k: [f64; 4], p: [f64; 4], chi_gamma: f64, chi_e: f64
     let zbar_z = 2.0 * p[0] * k_p / k[0]; // guarantees positivity of cross section
     // let zbar_z = 2.0 * chi_e * k_p / chi_gamma;
 
-    if let Some(ai) = airy_ai(zbar) {
+    if let Some(ai) = airy_ai_for_positive(zbar) {
         let sigma = (2.0 * consts::PI * CLASSICAL_ELECTRON_RADIUS).powi(2) * chi_e * z * (4.0 * g * zbar_z - 1.0) * ai / (ALPHA_FINE * chi_gamma * k[0] * p[0]);
         Some(sigma)
     } else {
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn airy_0() {
-        disable_gsl_abort_on_error();
-        let val = airy_ai(0.0).unwrap();
-        enable_gsl_abort_on_error();
-        let target = 0.355028053888;
-        println!("Ai(0) = {:e}, calculated = {:e}", target, val);
-        assert!( ((val - target)/target).abs() < 1.0e-9 );
-    }
-
-    #[test]
-    fn airy_2() {
-        disable_gsl_abort_on_error();
-        let val = airy_ai(2.0).unwrap();
-        enable_gsl_abort_on_error();
-        let target = 0.0349241304233;
-        println!("Ai(2) = {:e}, calculated = {:e}", target, val);
-        assert!( ((val - target)/target).abs() < 1.0e-9 );
-    }
-
-    #[test]
-    fn airy_20() {
-        disable_gsl_abort_on_error();
-        let val = airy_ai(20.0).unwrap();
-        enable_gsl_abort_on_error();
-        let target = 1.69167286867e-27;
-        println!("Ai(20) = {:e}, calculated = {:e}", target, val);
-        assert!( ((val - target)/target).abs() < 1.0e-9 );
-    }
-
-    #[test]
-    #[should_panic]
-    fn airy_200() {
-        disable_gsl_abort_on_error();
-        let _val = airy_ai(200.0).unwrap();
-        enable_gsl_abort_on_error(); // never called
     }
 }
