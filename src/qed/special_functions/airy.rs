@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn airy_0() {
         let val = airy_ai_for_positive(0.0).unwrap();
-        let target = 0.355028053888;
+        let target = 0.3550280538878172;
         println!("Ai(0) = {:e}, calculated = {:e}", target, val);
         assert!( ((val - target)/target).abs() < MAX_REL_ERR );
     }
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn airy_2() {
         let val = airy_ai_for_positive(2.0).unwrap();
-        let target = 0.0349241304233;
+        let target = 0.03492413042327438;
         println!("Ai(2) = {:e}, calculated = {:e}", target, val);
         assert!( ((val - target)/target).abs() < MAX_REL_ERR );
     }
