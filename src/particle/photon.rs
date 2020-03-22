@@ -332,8 +332,6 @@ impl Photon {
         if self.tau_abs < 0.0 {
             BinaryInteraction::PhotonAbsorbed
         } else if self.tau_st < 0.0 {
-            // rather than create a new particle:
-            self.weight += e.weight();
             // reset optical depth
             self.tau_st = rng.sample(Exp1);
             BinaryInteraction::EmissionStimulated

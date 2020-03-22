@@ -296,6 +296,14 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &m
         ph.store = split.concat();
     }
 
+    if emitted.len() > 0 {
+        let mut extra: Vec<Photon> = emitted.iter()
+            .map(|(i, ph)| ph.with_optical_depths(rng))
+            .collect();
+        // and add
+        ph.store.append(&mut extra);
+    }
+
     // Each electron can only absorb one photon per timestep
     //absorbed.dedup_by_key(|(i, _ph)| *i);
     // handle energy change
