@@ -238,11 +238,11 @@ impl Electron {
         }
     }
 
-    /// Modifies the electron momentum by absorbing the specified
-    /// photon.
-    pub fn absorb(&mut self, photon: &Photon) {
-        let k = photon.momentum(); // in units of MeV
-        let scale = photon.weight() / self.weight;
+    /// Alters the electron momentum from
+    /// p to p + r k, where k is given in units of MeV
+    /// and r = photon weight / electron weight.
+    pub fn kick(&mut self, k: [f64; 3], weight: f64) {
+        let scale = weight / self.weight;
         self.u.x += scale * k[0] / ELECTRON_MASS_MEV;
         self.u.y += scale * k[1] / ELECTRON_MASS_MEV;
         self.u.z += scale * k[2] / ELECTRON_MASS_MEV;

@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use rand_xoshiro::Xoshiro256StarStar;
 
 use crate::constants::*;
-use super::{Population, Particle, Electron, Photon};
+use super::{Population, Particle, Electron, Photon, BinaryInteraction};
 
 /// Implements radiation reaction, i.e. the recoil experienced by an
 /// electron when it emits a photon.
@@ -142,7 +142,7 @@ pub fn emit_radiation(e: &mut Population<Electron>, ph: &mut Population<Photon>,
 /// - `stop_time`: if enabled, disable absorption for photons after
 /// the specified interval has elapsed since their creation.
 #[allow(unused)]
-pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64, dt: f64, xmin: f64, dx: f64, max_displacement: Option<f64>, stop_time: Option<f64>) {
+pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &mut Xoshiro256StarStar, t: f64, dt: f64, xmin: f64, dx: f64, max_displacement: Option<f64>, stop_time: Option<f64>) {
     const PHOTON_E_ECRIT_CUTOFF: f64 = 1.0e-8;
 
     if e.store.is_empty() || ph.store.is_empty() {
@@ -153,18 +153,25 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64,
     let nthreads = rayon::current_num_threads();
     let chunk_len = (nph / (4 * nthreads)).max(1);
 
-    // return a Vec of:
-    //  index of the electron that did the absorbing
-    //  and the photon that was absorbed
-    let absorbed: Vec<(usize,Photon)> =
+    // return a tuple of Vecs of:
+    //  index of the electron that did the absorbing/emitting
+    //  and the photon that was absorbed/stimulated
+    let (absorbed, emitted) =
         ph.store
         .par_chunks_mut(chunk_len)
+        .enumerate()
         .map(
-            |chunk: &mut [Photon]| -> Vec<(usize,Photon)> {
+            |(i, chunk): (usize, &mut [Photon])| -> (Vec<(usize,Photon)>, Vec<(usize,Photon)>) {
+                let mut rng = rng.clone();
+                for _ in 0..i {
+                    rng.jump(); // avoid overlapping sequences of randoms
+                }
+
                 let mut prev_cell: isize = -1;
                 let mut start: Option<usize> = None;
                 let mut end: Option<usize> = None;
                 let mut absorbed: Vec<(usize,Photon)> = Vec::new();
+                let mut emitted: Vec<(usize,Photon)> = Vec::new();
 
                 for photon in chunk.iter_mut() {
                     if photon.chi() * ELECTRON_MASS_MEV / photon.energy() < PHOTON_E_ECRIT_CUTOFF {
@@ -234,17 +241,28 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64,
                     let electrons = &e.store[start.unwrap()..end.unwrap()];
 
                     for (j, e) in electrons.iter().enumerate() {
-                        if photon.is_absorbed_by(e, dt, dx) {
-                            photon.flag(); // mark photon for deletion
-                            absorbed.push( (j + start.unwrap(), photon.clone()) );
-                            break; // jump to next photon
+                        let state = photon.interacts_with(e, dt, dx, &mut rng);
+                        match state {
+                            BinaryInteraction::PhotonAbsorbed => {
+                                photon.flag(); // mark for deletion
+                                absorbed.push( (j + start.unwrap(), photon.clone()) );
+                                break;
+                            },
+                            BinaryInteraction::EmissionStimulated => {
+                                emitted.push( (j + start.unwrap(), photon.clone()) );
+                                break;
+                            },
+                            _ => (), // otherwise, do nothing
                         }
                     } // loop over electrons in same cell
                 } // loop over all photons
 
-                absorbed
+                (absorbed, emitted)
             })
-        .reduce(|| Vec::<(usize,Photon)>::new(), |a, b| [a,b].concat());
+        .reduce(
+            || (Vec::<(usize,Photon)>::new(), Vec::<(usize,Photon)>::new()),
+            |a, b| ([a.0,b.0].concat(), [a.1,b.1].concat())
+        );
 
     #[cfg(feature = "extra_absorption_output")] {
         if absorbed.len() > 0 {
@@ -282,10 +300,21 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, t: f64,
     //absorbed.dedup_by_key(|(i, _ph)| *i);
     // handle energy change
     for (i, photon) in absorbed.iter() {
-        e.store.get_mut(*i).map(|pt| pt.absorb(photon));
+        e.store.get_mut(*i).map(|pt| {
+            pt.kick( photon.momentum(), photon.weight() );
+        });
+    }
+
+    for (i, photon) in emitted.iter() {
+        e.store.get_mut(*i).map(|pt| {
+            let k = photon.momentum();
+            let k = [-k[0], -k[1], -k[2]];
+            pt.kick(k, pt.weight() );
+        });
     }
 
     //if absorbed.len() > 0 {
     //    println!("Absorbed {} macrophotons, len {} -> {}", absorbed.len(), nph, ph.store.len());
     //}
+    rng.long_jump();
 }

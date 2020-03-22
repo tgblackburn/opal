@@ -26,3 +26,4 @@ default = []
 no_radiation_reaction = [] # disable recoil, use classical emission rate
 no_beaming = [] # photons emitted parallel to electron momentum
 extra_absorption_output = [] # write data about absorbed photons to stderr
+no_stimulated_emission = [] # disable stimulated emission, handle absorption only

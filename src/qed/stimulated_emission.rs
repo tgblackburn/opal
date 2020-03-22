@@ -5,8 +5,6 @@ use std::f64::consts;
 use crate::constants::*;
 use super::special_functions::*;
 
-const CLASSICAL_ELECTRON_RADIUS: f64 = 2.81794e-15;
-
 /// The scaled cross section for stimulated emission is given by
 ///   scaled_sigma = k.p sigma / (k0 p0)
 /// where k, p are the four-momenta of the photon and electron
