@@ -154,6 +154,10 @@ impl Particle for Ion {
         *self
     }
 
+    fn with_optical_depths<R: Rng>(&self, _rng: &mut R) -> Self {
+        *self
+    }
+
     #[allow(non_snake_case)]
     fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64) {
         let E = Vec3::new_from_slice(E);

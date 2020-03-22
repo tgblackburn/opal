@@ -123,6 +123,15 @@ impl Particle for Photon {
         pt
     }
 
+    fn with_optical_depths<R: Rng>(&self, rng: &mut R) -> Self {
+        let mut pt = *self;
+        pt.tau[0] = rng.sample(Exp1);
+        pt.tau[1] = rng.sample(Exp1);
+        pt.tau_abs = rng.sample(Exp1);
+        pt.tau_st = rng.sample(Exp1);
+        pt
+    }
+
     fn spin_state(&self) -> Option<f64> {
         Some(self.helicity())
     }

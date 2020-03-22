@@ -41,6 +41,10 @@ pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {
     /// Generally called with a pseudorandom argument.
     fn with_optical_depth(&self, tau: f64) -> Self;
 
+    /// Returns a new particle with all optical depths (however
+    /// many there are) appropriately generated.
+    fn with_optical_depths<R: Rng>(&self, rng: &mut R) -> Self;
+
     /// Returns a triple of
     /// - the particles current `cell`,
     /// - its *current* fractional offset from the cell left-hand boundary

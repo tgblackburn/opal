@@ -165,6 +165,12 @@ impl Particle for Electron {
         pt
     }
 
+    fn with_optical_depths<R: Rng>(&self, rng: &mut R) -> Self {
+        let mut pt = *self;
+        pt.tau = rng.sample(Exp1);
+        pt
+    }
+
     fn flag(&mut self) {
         self.flag = true;
     }
@@ -229,7 +235,7 @@ impl Electron {
             // construct photon
             let u = [u.x, u.y, u.z];
             let photon = Photon::create(self.cell, self.x, &u, self.weight, 0.0, 0.0)
-                .with_optical_depth(rng.sample(Exp1))
+                .with_optical_depths(rng)
                 .at_time(t);
 
             Some((photon, formation_length))
