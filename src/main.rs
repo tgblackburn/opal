@@ -199,6 +199,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         #[cfg(feature = "no_radiation_reaction")] {
             println!("[radiation reaction disabled, using classical emission rates]");
         }
+        #[cfg(feature = "no_stimulated_emission")] {
+            if photon_absorption {
+                println!("[stimulated emission disabled, running with absorption only]");
+            }
+        }
     }
 
     let runtime = std::time::Instant::now();
