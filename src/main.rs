@@ -204,6 +204,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 println!("[stimulated emission disabled, running with absorption only]");
             }
         }
+        #[cfg(feature = "immobile_photons")] {
+            println!("[photon push disabled]");
+        }
     }
 
     let runtime = std::time::Instant::now();
@@ -233,7 +236,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             //println!("{} at i = {}, j = {} [steps between output = {}]", id, i, _j, steps_bt_output);
             electrons.advance(&world, &grid, dt);
             ions.advance(&world, &grid, dt);
-            photons.advance(&world, &grid, dt);
+            #[cfg(not(feature = "immobile_photons"))] {
+                photons.advance(&world, &grid, dt);
+            }
 
             if photon_absorption {
                 absorb(&mut electrons, &mut photons, &mut rng, t, dt, grid.xmin(), grid.dx(), disable_qed_after, disable_absorption_after);
