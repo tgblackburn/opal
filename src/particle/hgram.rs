@@ -85,6 +85,21 @@ pub struct Histogram {
     unit: Vec<String>,
 }
 
+impl fmt::Display for Histogram {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Histogram {}d, \"{}\" [\"{}\"] {{", self.dim, self.name, self.bunit)?;
+        for i in 0..self.dim {
+            writeln!(f, "\taxis {}: min = {:e}, max = {:e}, {} bins of size {:e} [\"{}\"]", i+1, self.min[i], self.max[i], self.bins[i], self.bin_sz[i], self.unit[i])?;
+        }
+        if self.cts.len() < 5 {
+            writeln!(f, "\ttotal = {:e}, cts = {:?}", self.total, self.cts)?;
+        } else {
+            writeln!(f, "\ttotal = {:e}, cts = [..., len = {}]", self.total, self.cts.len())?;
+        }
+        write!(f, "}}")
+    }
+}
+
 fn min_max_by<T>(base: &[T], f: &impl Fn(&T) -> f64, wrapper: impl Fn(f64) -> f64) -> Option<(f64, f64)> {
     if base.is_empty() {
         None
@@ -407,5 +422,86 @@ impl Histogram {
         hdu.write_image(&mut file, &self.cts[..])?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    static mut UNIVERSE: Option<mpi::environment::Universe> = None;
+
+    #[test]
+    #[ignore]
+    fn single_2d() {
+        // Safely init (or reinit) MPI
+        let universe = unsafe {
+            INIT.call_once(|| {
+                UNIVERSE = mpi::initialize();
+            });
+            UNIVERSE.as_ref().unwrap()
+        };
+        let world = universe.world();
+
+        let data = vec![[1.0, 2.0, 0.5]; 1];
+        type Accessor<'a,T> = Box<dyn Fn(&T) -> f64 + 'a>;
+        let fx = Box::new(|pt: &[f64; 3]| pt[0]) as Accessor<[f64; 3]>;
+        let fy = Box::new(|pt: &[f64; 3]| pt[1]) as Accessor<[f64; 3]>;
+        let weight = |_pt: &[f64; 3]| 1.0;
+        let hgram = Histogram::generate_2d(&world, &data, [&fx, &fy], &weight, ["x", "y"], ["1", "1"], [BinSpec::Automatic; 2], HeightSpec::Density);
+        assert!(hgram.is_some());
+        let hgram = hgram.unwrap();
+        println!("hgram = {}", hgram);
+        let status = hgram.write_fits("!output/single_point.fits");
+        println!("status = {:?}", status);
+        assert!(status.is_ok());
+    }
+
+    #[test]
+    #[ignore]
+    fn single_log_2d() {
+        // Safely init (or reinit) MPI
+        let universe = unsafe {
+            INIT.call_once(|| {
+                UNIVERSE = mpi::initialize();
+            });
+            UNIVERSE.as_ref().unwrap()
+        };
+        let world = universe.world();
+
+        let data = vec![[1.0, 2.0, 0.5]; 1];
+        type Accessor<'a,T> = Box<dyn Fn(&T) -> f64 + 'a>;
+        let fx = Box::new(|pt: &[f64; 3]| pt[0]) as Accessor<[f64; 3]>;
+        let fy = Box::new(|pt: &[f64; 3]| pt[1]) as Accessor<[f64; 3]>;
+        let weight = |_pt: &[f64; 3]| 1.0;
+        let hgram = Histogram::generate_2d(&world, &data, [&fx, &fy], &weight, ["x", "y"], ["1", "1"], [BinSpec::LogScaled; 2], HeightSpec::Density);
+        assert!(hgram.is_some());
+        let hgram = hgram.unwrap();
+        println!("hgram = {}", hgram);
+        let status = hgram.write_fits("!output/single_point_log.fits");
+        println!("status = {:?}", status);
+        assert!(status.is_ok());
+    }
+
+    #[test]
+    #[ignore]
+    fn empty_2d() {
+        // Safely init (or reinit) MPI
+        let universe = unsafe {
+            INIT.call_once(|| {
+                UNIVERSE = mpi::initialize();
+            });
+            UNIVERSE.as_ref().unwrap()
+        };
+        let world = universe.world();
+
+        let data: Vec<[f64; 3]> = Vec::new();
+        type Accessor<'a,T> = Box<dyn Fn(&T) -> f64 + 'a>;
+        let fx = Box::new(|pt: &[f64; 3]| pt[0]) as Accessor<[f64; 3]>;
+        let fy = Box::new(|pt: &[f64; 3]| pt[1]) as Accessor<[f64; 3]>;
+        let weight = |_pt: &[f64; 3]| 1.0;
+        let hgram = Histogram::generate_2d(&world, &data, [&fx, &fy], &weight, ["x", "y"], ["1", "1"], [BinSpec::Automatic; 2], HeightSpec::Density);
+        assert!(hgram.is_none());
     }
 }
