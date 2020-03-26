@@ -39,11 +39,15 @@ pub trait Particle: Copy + Clone + Debug + Equivalence + PartialOrd {
     /// Returns a new particle which has optical depth (against
     /// the default QED process) set to `tau`.
     /// Generally called with a pseudorandom argument.
+    #[deprecated]
     fn with_optical_depth(&self, tau: f64) -> Self;
 
     /// Returns a new particle with all optical depths (however
     /// many there are) appropriately generated.
     fn with_optical_depths<R: Rng>(&self, rng: &mut R) -> Self;
+
+    /// Returns a new particle with adjusted weight
+    fn with_weight(&self, weight: f64) -> Self;
 
     /// Returns a triple of
     /// - the particles current `cell`,
@@ -186,7 +190,7 @@ impl<T> Population<T> where T: Particle + Send + Sync {
                         uy(real_x, rng.gen(), rng.sample(StandardNormal)),
                         uz(real_x, rng.gen(), rng.sample(StandardNormal)),
                     ];
-                    T::create(c, x, &u, weight, grid.dx(), dt).with_optical_depth(rng.sample(Exp1))
+                    T::create(c, x, &u, weight, grid.dx(), dt).with_optical_depths(rng)
                 })
                 .collect();
             pt.append(&mut sub);

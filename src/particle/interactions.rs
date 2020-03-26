@@ -249,7 +249,7 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &m
                                 break;
                             },
                             BinaryInteraction::EmissionStimulated => {
-                                emitted.push( (j + start.unwrap(), photon.clone()) );
+                                emitted.push( (j + start.unwrap(), photon.with_weight(e.weight())) );
                                 break;
                             },
                             _ => (), // otherwise, do nothing
@@ -298,7 +298,7 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &m
 
     if emitted.len() > 0 {
         let mut extra: Vec<Photon> = emitted.iter()
-            .map(|(i, ph)| ph.with_optical_depths(rng))
+            .map(|(i, ph)| ph.with_optical_depths(rng).at_time(t))
             .collect();
         // and add
         ph.store.append(&mut extra);

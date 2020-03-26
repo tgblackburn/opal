@@ -171,6 +171,12 @@ impl Particle for Electron {
         pt
     }
 
+    fn with_weight(&self, weight: f64) -> Self {
+        let mut pt = *self;
+        pt.weight = weight;
+        pt
+    }
+
     fn flag(&mut self) {
         self.flag = true;
     }

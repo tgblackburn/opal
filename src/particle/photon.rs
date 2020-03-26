@@ -132,6 +132,12 @@ impl Particle for Photon {
         pt
     }
 
+    fn with_weight(&self, weight: f64) -> Self {
+        let mut pt = *self;
+        pt.weight = weight;
+        pt
+    }
+
     fn spin_state(&self) -> Option<f64> {
         Some(self.helicity())
     }
