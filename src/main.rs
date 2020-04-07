@@ -204,6 +204,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 println!("[stimulated emission disabled, running with absorption only]");
             }
         }
+        #[cfg(feature = "extra_stimulated_emission_output")] {
+            println!("[writing extra stimulated emission data to stderr]");
+        }
         #[cfg(feature = "immobile_photons")] {
             println!("[photon push disabled]");
         }

@@ -271,7 +271,19 @@ pub fn absorb(e: &mut Population<Electron>, ph: &mut Population<Photon>, rng: &m
                 let k = photon.normalized_four_momentum();
                 let p = electron.normalized_four_momentum();
                 let (c, xi, _) = photon.location();
-                eprintln!("{:.6e} {:.6e} {:.6e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e}", xmin + dx * ((c as f64) + xi), t, photon.birth_time(), photon.chi(), k[0], k[1], k[2], k[3], electron.chi(), p[0], p[1], p[2], p[3]);
+                eprintln!("{:.6e} {:.6e} {:.6e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} abs", xmin + dx * ((c as f64) + xi), t, photon.birth_time(), photon.chi(), k[0], k[1], k[2], k[3], electron.chi(), p[0], p[1], p[2], p[3]);
+            }
+        }
+    }
+
+    #[cfg(feature = "extra_stimulated_emission_output")] {
+        if emitted.len() > 0 {
+            for (i, photon) in emitted.iter() {
+                let electron = &e.store[*i];
+                let k = photon.normalized_four_momentum();
+                let p = electron.normalized_four_momentum();
+                let (c, xi, _) = photon.location();
+                eprintln!("{:.6e} {:.6e} {:.6e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} {:.3e} stim", xmin + dx * ((c as f64) + xi), t, photon.birth_time(), photon.chi(), k[0], k[1], k[2], k[3], electron.chi(), p[0], p[1], p[2], p[3]);
             }
         }
     }
