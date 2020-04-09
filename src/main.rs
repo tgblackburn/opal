@@ -199,6 +199,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         #[cfg(feature = "no_radiation_reaction")] {
             println!("[radiation reaction disabled, using classical emission rates]");
         }
+        #[cfg(feature = "no_stimulated_emission")] {
+            if photon_absorption {
+                println!("[stimulated emission disabled, running with absorption only]");
+            }
+        }
+        #[cfg(feature = "extra_stimulated_emission_output")] {
+            println!("[writing extra stimulated emission data to stderr]");
+        }
+        #[cfg(feature = "immobile_photons")] {
+            println!("[photon push disabled]");
+        }
     }
 
     let runtime = std::time::Instant::now();
@@ -228,10 +239,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             //println!("{} at i = {}, j = {} [steps between output = {}]", id, i, _j, steps_bt_output);
             electrons.advance(&world, &grid, dt);
             ions.advance(&world, &grid, dt);
-            photons.advance(&world, &grid, dt);
+            #[cfg(not(feature = "immobile_photons"))] {
+                photons.advance(&world, &grid, dt);
+            }
 
             if photon_absorption {
-                absorb(&mut electrons, &mut photons, t, dt, grid.xmin(), grid.dx(), disable_qed_after, disable_absorption_after);
+                absorb(&mut electrons, &mut photons, &mut rng, t, dt, grid.xmin(), grid.dx(), disable_qed_after, disable_absorption_after);
             }
 
             if photon_emission {

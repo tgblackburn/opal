@@ -1,6 +1,6 @@
 [package]
 name = "opal"
-version = "1.4.1"
+version = "1.5.0"
 authors = ["tgblackburn"]
 edition = "2018"
 publish = false
@@ -26,3 +26,6 @@ default = []
 no_radiation_reaction = [] # disable recoil, use classical emission rate
 no_beaming = [] # photons emitted parallel to electron momentum
 extra_absorption_output = [] # write data about absorbed photons to stderr
+extra_stimulated_emission_output = [] # write data about stimulated emission to stderr
+no_stimulated_emission = [] # disable stimulated emission, handle absorption only
+immobile_photons = [] # photons, if generated, are not pushed
