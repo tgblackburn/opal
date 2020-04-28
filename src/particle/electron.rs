@@ -165,6 +165,18 @@ impl Particle for Electron {
         pt
     }
 
+    fn with_optical_depths<R: Rng>(&self, rng: &mut R) -> Self {
+        let mut pt = *self;
+        pt.tau = rng.sample(Exp1);
+        pt
+    }
+
+    fn with_weight(&self, weight: f64) -> Self {
+        let mut pt = *self;
+        pt.weight = weight;
+        pt
+    }
+
     fn flag(&mut self) {
         self.flag = true;
     }
@@ -229,7 +241,7 @@ impl Electron {
             // construct photon
             let u = [u.x, u.y, u.z];
             let photon = Photon::create(self.cell, self.x, &u, self.weight, 0.0, 0.0)
-                .with_optical_depth(rng.sample(Exp1))
+                .with_optical_depths(rng)
                 .at_time(t);
 
             Some((photon, formation_length))
@@ -238,11 +250,11 @@ impl Electron {
         }
     }
 
-    /// Modifies the electron momentum by absorbing the specified
-    /// photon.
-    pub fn absorb(&mut self, photon: &Photon) {
-        let k = photon.momentum(); // in units of MeV
-        let scale = photon.weight() / self.weight;
+    /// Alters the electron momentum from
+    /// p to p + r k, where k is given in units of MeV
+    /// and r = photon weight / electron weight.
+    pub fn kick(&mut self, k: [f64; 3], weight: f64) {
+        let scale = weight / self.weight;
         self.u.x += scale * k[0] / ELECTRON_MASS_MEV;
         self.u.y += scale * k[1] / ELECTRON_MASS_MEV;
         self.u.z += scale * k[2] / ELECTRON_MASS_MEV;

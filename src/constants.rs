@@ -24,3 +24,5 @@ pub const CRITICAL_FIELD: f64 = 1.323285e18;
 pub const ALPHA_FINE: f64 = 7.29735257e-3;
 /// Reduced Compton length / speed of light = hbar / (m c^2)
 pub const COMPTON_TIME: f64 = 1.28808867e-21;
+/// Classical electron radius = alpha * Compton length
+pub const CLASSICAL_ELECTRON_RADIUS: f64 = 2.817940e-15;

@@ -10,7 +10,7 @@ use memoffset::*;
 use crate::constants::*;
 use crate::particle::*;
 use crate::particle::vec3::*;
-use crate::qed::photon_absorption;
+use crate::qed::{photon_absorption, stimulated_emission};
 
 #[derive(Copy,Clone)]
 pub struct Photon {
@@ -26,6 +26,7 @@ pub struct Photon {
     chi: f64,
     tau: [f64; 2],
     tau_abs: f64, // against one-photon absorption
+    tau_st: f64, // against stimulated emission
     birth_time: f64,
     flag: bool,
 }
@@ -39,7 +40,7 @@ impl fmt::Debug for Photon {
 unsafe impl Equivalence for Photon {
     type Out = UserDatatype;
     fn equivalent_datatype() -> Self::Out {
-        let blocklengths = [1, 1, 1, 1, 1, 1, 1, 4, 2, 1, 2, 1, 1, 1];
+        let blocklengths = [1, 1, 1, 1, 1, 1, 1, 4, 2, 1, 2, 1, 1, 1, 1];
         let displacements = [
             offset_of!(Photon, cell) as mpi::Address,
             offset_of!(Photon, prev_x) as mpi::Address,
@@ -53,10 +54,11 @@ unsafe impl Equivalence for Photon {
             offset_of!(Photon, chi) as mpi::Address,
             offset_of!(Photon, tau) as mpi::Address,
             offset_of!(Photon, tau_abs) as mpi::Address,
+            offset_of!(Photon, tau_st) as mpi::Address,
             offset_of!(Photon, birth_time) as mpi::Address,
             offset_of!(Photon, flag) as mpi::Address,
         ];
-        let types: [&dyn Datatype; 14] = [
+        let types: [&dyn Datatype; 15] = [
             &isize::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
@@ -70,9 +72,10 @@ unsafe impl Equivalence for Photon {
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
             &f64::equivalent_datatype(),
+            &f64::equivalent_datatype(),
             &bool::equivalent_datatype(),
         ];
-        UserDatatype::structured(14, &blocklengths, &displacements, &types)
+        UserDatatype::structured(15, &blocklengths, &displacements, &types)
     }
 }
 
@@ -106,6 +109,7 @@ impl Particle for Photon {
             chi: 0.0,
             tau: [f64::INFINITY; 2],
             tau_abs: f64::INFINITY,
+            tau_st: f64::INFINITY,
             birth_time: -f64::INFINITY,
             flag: false,
         }
@@ -115,6 +119,22 @@ impl Particle for Photon {
         let mut pt = *self;
         pt.tau = [tau; 2];
         pt.tau_abs = tau;
+        pt.tau_st = tau;
+        pt
+    }
+
+    fn with_optical_depths<R: Rng>(&self, rng: &mut R) -> Self {
+        let mut pt = *self;
+        pt.tau[0] = rng.sample(Exp1);
+        pt.tau[1] = rng.sample(Exp1);
+        pt.tau_abs = rng.sample(Exp1);
+        pt.tau_st = rng.sample(Exp1);
+        pt
+    }
+
+    fn with_weight(&self, weight: f64) -> Self {
+        let mut pt = *self;
+        pt.weight = weight;
         pt
     }
 
@@ -230,6 +250,12 @@ impl Particle for Photon {
     }
 }
 
+pub enum BinaryInteraction {
+    DidNotOccur,
+    PhotonAbsorbed,
+    EmissionStimulated,
+}
+
 #[allow(unused)]
 impl Photon {
     /// Specifies the time at which the photon is to be created.
@@ -275,32 +301,63 @@ impl Photon {
         amplitude.norm_sqr()
     }
 
-    /// Calculates the probability that the photon is absorbed by the
-    /// specified electron, and reduces the photon optical depth
-    /// against absorption by that amount.
+    /// Determines whether the photon is absorbed by the electron,
+    /// or whether it stimulates the emission of another photon
+    /// with the same momentum.
     /// 
     /// `dt` is the simulation timestep and therefore the interaction
     /// time; `dx` is the grid spacing and assumed to be the physical
     /// size of both the macrophoton and macroelectron, i.e. the
     /// interaction volume V = dx * A, where A is 1 m^2.
-    /// 
-    /// If the photon optical depth falls below zero, return `true`,
-    /// as absorption is deemed to occur for this electron.
-    pub fn is_absorbed_by(&mut self, e: &Electron, dt: f64, dx: f64) -> bool {
+    pub fn interacts_with<R: Rng>(&mut self, e: &Electron, dt: f64, dx: f64, rng: &mut R) -> BinaryInteraction {
         let k = self.normalized_four_momentum();
         let p = e.normalized_four_momentum();
         let chi_gamma = self.chi;
         let chi_e = e.chi();
+        let mut prob_abs = 0.0;
+        let mut prob_st = 0.0;
 
         if let Some(sigma) = photon_absorption::scaled_cross_section(k, p, chi_gamma, chi_e) {
             let partial_prob = e.weight() * (SPEED_OF_LIGHT * dt / dx) * sigma;
             if partial_prob < 0.0 || !partial_prob.is_finite() {
-                println!("k = {:?}, p = {:?}, chi_gamma = {}, chi_e = {}, sigma = {}", k, p, chi_gamma, e.chi(), sigma);
+                println!("absorption: k = {:?}, p = {:?}, chi_gamma = {}, chi_e = {}, sigma = {}", k, p, chi_gamma, e.chi(), sigma);
             }
             assert!(partial_prob >= 0.0);
-            self.tau_abs = self.tau_abs - partial_prob;
+            self.tau_abs -= partial_prob;
+            prob_abs = partial_prob;
         }
 
-        self.tau_abs < 0.0
+        if cfg!(not(feature = "no_stimulated_emission")) {
+            if let Some(sigma) = stimulated_emission::scaled_cross_section(k, p, chi_gamma, chi_e) {
+                let partial_prob = e.weight() * (SPEED_OF_LIGHT * dt / dx) * sigma;
+                if partial_prob < 0.0 || !partial_prob.is_finite() {
+                    println!("stimulated emission: k = {:?}, p = {:?}, chi_gamma = {}, chi_e = {}, sigma = {}", k, p, chi_gamma, e.chi(), sigma);
+                }
+                assert!(partial_prob >= 0.0);
+                self.tau_st -= partial_prob;
+                prob_st = partial_prob;
+            }
+        }
+
+        if self.tau_abs < 0.0 && self.tau_st < 0.0 {
+            // Select between possible events:
+            let r: f64 = rng.gen();
+            if r < prob_abs / (prob_abs + prob_st) {
+                BinaryInteraction::PhotonAbsorbed
+            } else {
+                // reset both optical depths
+                self.tau_abs = rng.sample(Exp1);
+                self.tau_st = rng.sample(Exp1);
+                BinaryInteraction::EmissionStimulated
+            }
+        } else if self.tau_abs < 0.0 {
+            BinaryInteraction::PhotonAbsorbed
+        } else if self.tau_st < 0.0 {
+            // reset optical depth
+            self.tau_st = rng.sample(Exp1);
+            BinaryInteraction::EmissionStimulated
+        } else {
+            BinaryInteraction::DidNotOccur
+        }
     }
 }

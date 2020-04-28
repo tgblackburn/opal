@@ -154,6 +154,16 @@ impl Particle for Ion {
         *self
     }
 
+    fn with_optical_depths<R: Rng>(&self, _rng: &mut R) -> Self {
+        *self
+    }
+
+    fn with_weight(&self, weight: f64) -> Self {
+        let mut pt = *self;
+        pt.weight = weight;
+        pt
+    }
+
     #[allow(non_snake_case)]
     fn push(&mut self, E: &[f64; 3], B: &[f64; 3], dx: f64, dt: f64) {
         let E = Vec3::new_from_slice(E);
