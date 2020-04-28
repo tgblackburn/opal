@@ -314,6 +314,8 @@ impl Photon {
         let p = e.normalized_four_momentum();
         let chi_gamma = self.chi;
         let chi_e = e.chi();
+        let mut prob_abs = 0.0;
+        let mut prob_st = 0.0;
 
         if let Some(sigma) = photon_absorption::scaled_cross_section(k, p, chi_gamma, chi_e) {
             let partial_prob = e.weight() * (SPEED_OF_LIGHT * dt / dx) * sigma;
@@ -322,6 +324,7 @@ impl Photon {
             }
             assert!(partial_prob >= 0.0);
             self.tau_abs -= partial_prob;
+            prob_abs = partial_prob;
         }
 
         if cfg!(not(feature = "no_stimulated_emission")) {
@@ -332,10 +335,22 @@ impl Photon {
                 }
                 assert!(partial_prob >= 0.0);
                 self.tau_st -= partial_prob;
+                prob_st = partial_prob;
             }
         }
 
-        if self.tau_abs < 0.0 {
+        if self.tau_abs < 0.0 && self.tau_st < 0.0 {
+            // Select between possible events:
+            let r: f64 = rng.gen();
+            if r < prob_abs / (prob_abs + prob_st) {
+                BinaryInteraction::PhotonAbsorbed
+            } else {
+                // reset both optical depths
+                self.tau_abs = rng.sample(Exp1);
+                self.tau_st = rng.sample(Exp1);
+                BinaryInteraction::EmissionStimulated
+            }
+        } else if self.tau_abs < 0.0 {
             BinaryInteraction::PhotonAbsorbed
         } else if self.tau_st < 0.0 {
             // reset optical depth
